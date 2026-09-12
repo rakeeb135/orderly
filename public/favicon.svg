@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="orderlyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#006241"/>
+      <stop offset="100%" stop-color="#00462e"/>
+    </linearGradient>
+  </defs>
+  <!-- Background rounded squircle -->
+  <rect width="512" height="512" rx="128" fill="url(#orderlyGrad)"/>
+  
+  <!-- Stylized Geometric Box / Order Symbol -->
+  <path d="M256 120 L380 185 L256 250 L132 185 Z" fill="#FFFFFF" fill-opacity="0.95"/>
+  <path d="M132 205 L246 265 L246 385 L132 320 Z" fill="#FFFFFF" fill-opacity="0.75"/>
+  <path d="M266 265 L380 205 L380 320 L266 385 Z" fill="#FFFFFF" fill-opacity="0.85"/>
+  
+  <!-- Subtle inner node dot -->
+  <circle cx="256" cy="250" r="10" fill="#006241" fill-opacity="0.4"/>
+</svg>

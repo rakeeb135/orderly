@@ -1,0 +1,686 @@
+import { supabase } from '../supabase';
+import { normalizeSLPhone, isValidSLPhone } from '../utils/phone';
+
+// Currency formatter for Sri Lankan Rupees
+export const formatLKR = (amount) => {
+  const val = Number(amount) || 0;
+  return `Rs. ${val.toLocaleString('en-LK')}`;
+};
+
+// ----------------------------------------------------
+// NOTIFICATIONS ENGINE
+// ----------------------------------------------------
+
+export async function createNotification(sellerId, { title, message, type = 'order', link = '/orders' }) {
+  if (!sellerId) return null;
+  try {
+    const { data, error } = await supabase
+      .from('notifications')
+      .insert([{
+        seller_id: sellerId,
+        title,
+        message,
+        type,
+        link,
+        is_read: false
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Failed to create notification:', error.message);
+      return null;
+    }
+    return data;
+  } catch (err) {
+    console.error('Notification creation exception:', err);
+    return null;
+  }
+}
+
+export async function fetchNotifications(sellerId) {
+  if (!sellerId) return [];
+  try {
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('seller_id', sellerId)
+      .order('created_at', { ascending: false })
+      .limit(30);
+
+    if (error) {
+      console.error('Error fetching notifications:', error);
+      return [];
+    }
+    return data || [];
+  } catch (err) {
+    console.error('Error in fetchNotifications:', err);
+    return [];
+  }
+}
+
+export async function markNotificationAsRead(id) {
+  if (!id) return;
+  const { error } = await supabase
+    .from('notifications')
+    .update({ is_read: true })
+    .eq('id', id);
+  if (error) throw error;
+}
+
+export async function markAllNotificationsAsRead(sellerId) {
+  if (!sellerId) return;
+  const { error } = await supabase
+    .from('notifications')
+    .update({ is_read: true })
+    .eq('seller_id', sellerId)
+    .eq('is_read', false);
+  if (error) throw error;
+}
+
+// ----------------------------------------------------
+// SELLERS & AUTH
+// ----------------------------------------------------
+
+export async function authenticateSeller(email, password) {
+  const cleanEmail = email.trim().toLowerCase();
+  
+  const { data, error } = await supabase
+    .from('sellers')
+    .select('*')
+    .eq('email', cleanEmail)
+    .single();
+
+  if (error || !data) {
+    throw new Error('Seller profile not found. Verify email or create an account.');
+  }
+
+  if (data.password_hash && password && data.password_hash !== password.trim()) {
+    throw new Error('Incorrect password.');
+  }
+
+  return data;
+}
+
+export async function createSeller({ shopName, handle, email, password = '', whatsappNumber }) {
+  const cleanHandle = handle.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '');
+  const cleanPhone = normalizeSLPhone(whatsappNumber);
+
+  if (!isValidSLPhone(cleanPhone)) {
+    throw new Error('Please enter a valid 10-digit Sri Lankan phone number.');
+  }
+
+  const { data, error } = await supabase
+    .from('sellers')
+    .insert([{
+      shop_name: shopName.trim(),
+      handle: cleanHandle,
+      email: email.trim().toLowerCase(),
+      password_hash: password ? password.trim() : '',
+      whatsapp_number: cleanPhone,
+      subscription_status: 'trial',
+      subscription_expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString()
+    }])
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === '23505') throw new Error('Shop handle or email is already taken.');
+    throw error;
+  }
+  return data;
+}
+
+export async function fetchSellerByHandle(handle) {
+  const { data, error } = await supabase
+    .from('sellers')
+    .select('*')
+    .eq('handle', handle.trim().toLowerCase())
+    .single();
+
+  if (error) return null;
+  return data;
+}
+
+export async function updateSellerProfile(sellerId, updates) {
+  const { data, error } = await supabase
+    .from('sellers')
+    .update(updates)
+    .eq('id', sellerId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+// ----------------------------------------------------
+// PRODUCTS & INVENTORY
+// ----------------------------------------------------
+
+export async function fetchProducts(sellerId) {
+  const { data, error } = await supabase
+    .from('products')
+    .select('*')
+    .eq('seller_id', sellerId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+export async function createProduct({
+  sellerId,
+  title,
+  price,
+  compareAtPrice = null,
+  costPrice = null,
+  description = '',
+  category = 'General',
+  photoUrls = [],
+  trackStock = true,
+  stockCount = 0,
+  variants = [],
+  freeDelivery = false
+}) {
+  const slug = title
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '') + '-' + Math.random().toString(36).substring(2, 6);
+
+  const { data, error } = await supabase
+    .from('products')
+    .insert([{
+      seller_id: sellerId,
+      title: title.trim(),
+      slug,
+      price: Number(price),
+      compare_at_price: compareAtPrice ? Number(compareAtPrice) : null,
+      cost_price: costPrice ? Number(costPrice) : null,
+      description: description.trim(),
+      category: category.trim() || 'General',
+      photo_urls: photoUrls,
+      track_stock: trackStock,
+      stock_count: Number(stockCount) || 0,
+      variants: variants,
+      free_delivery: Boolean(freeDelivery)
+    }])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function updateProduct(productId, updates) {
+  const payload = { ...updates };
+  if (payload.price !== undefined) payload.price = Number(payload.price);
+  if (payload.compare_at_price !== undefined) {
+    payload.compare_at_price = payload.compare_at_price ? Number(payload.compare_at_price) : null;
+  }
+  if (payload.cost_price !== undefined) {
+    payload.cost_price = payload.cost_price ? Number(payload.cost_price) : null;
+  }
+  if (payload.stock_count !== undefined) {
+    payload.stock_count = Number(payload.stock_count) || 0;
+  }
+  if (payload.free_delivery !== undefined) {
+    payload.free_delivery = Boolean(payload.free_delivery);
+  }
+
+  const { data, error } = await supabase
+    .from('products')
+    .update(payload)
+    .eq('id', productId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function updateProductStock(productId, newStock) {
+  const parsedStock = Math.max(0, parseInt(newStock, 10));
+  const { data, error } = await supabase
+    .from('products')
+    .update({ stock_count: parsedStock })
+    .eq('id', productId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteProduct(productId) {
+  const { error } = await supabase
+    .from('products')
+    .delete()
+    .eq('id', productId);
+
+  if (error) throw error;
+}
+
+// ----------------------------------------------------
+// CUSTOMERS
+// ----------------------------------------------------
+
+export async function findCustomerByPhone(phone) {
+  const cleanPhone = normalizeSLPhone(phone);
+  if (!cleanPhone || cleanPhone.length < 9) return null;
+
+  const { data, error } = await supabase
+    .from('customers')
+    .select('*')
+    .eq('phone', cleanPhone)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return data;
+}
+
+export async function getOrCreateCustomer({ phone, secondaryPhone = '', name, city, deliveryAddress, district = '' }) {
+  const cleanPhone = normalizeSLPhone(phone);
+  const cleanSecondary = secondaryPhone ? normalizeSLPhone(secondaryPhone) : '';
+
+  const { data: existing } = await supabase
+    .from('customers')
+    .select('*')
+    .eq('phone', cleanPhone)
+    .maybeSingle();
+
+  if (existing) {
+    const { data: updated } = await supabase
+      .from('customers')
+      .update({
+        name: name?.trim() || existing.name,
+        secondary_phone: cleanSecondary || existing.secondary_phone,
+        city: city?.trim() || existing.city,
+        delivery_address: deliveryAddress?.trim() || existing.delivery_address,
+        district: district?.trim() || existing.district
+      })
+      .eq('id', existing.id)
+      .select()
+      .single();
+    return updated || existing;
+  }
+
+  const { data: created, error } = await supabase
+    .from('customers')
+    .insert([{
+      phone: cleanPhone,
+      secondary_phone: cleanSecondary,
+      name: name?.trim() || 'New Customer',
+      city: city?.trim() || '',
+      delivery_address: deliveryAddress?.trim() || '',
+      district: district?.trim() || ''
+    }])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return created;
+}
+
+export async function fetchCustomers() {
+  const { data, error } = await supabase
+    .from('customers')
+    .select('*')
+    .order('total_orders', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+export async function updateCustomer(customerId, updates) {
+  const payload = { ...updates };
+  if (payload.phone) {
+    payload.phone = normalizeSLPhone(payload.phone);
+  }
+  if (payload.secondary_phone) {
+    payload.secondary_phone = normalizeSLPhone(payload.secondary_phone);
+  }
+
+  const { data, error } = await supabase
+    .from('customers')
+    .update(payload)
+    .eq('id', customerId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteCustomerSafe(customerId) {
+  const { data: linkedOrders, error: checkErr } = await supabase
+    .from('orders')
+    .select('id')
+    .eq('customer_id', customerId);
+
+  if (checkErr) throw checkErr;
+
+  if (linkedOrders && linkedOrders.length > 0) {
+    await supabase
+      .from('orders')
+      .update({ customer_id: null })
+      .eq('customer_id', customerId);
+  }
+
+  const { error } = await supabase
+    .from('customers')
+    .delete()
+    .eq('id', customerId);
+
+  if (error) throw error;
+  return true;
+}
+
+// ----------------------------------------------------
+// ORDERS
+// ----------------------------------------------------
+
+export async function fetchOrders(sellerId) {
+  const { data, error } = await supabase
+    .from('orders')
+    .select('*, customers(*)')
+    .eq('seller_id', sellerId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+export async function fetchOrderByUuid(orderId) {
+  const { data, error } = await supabase
+    .from('orders')
+    .select('*, sellers(*), customers(*)')
+    .eq('id', orderId)
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function createOrder({
+  sellerId,
+  customerName,
+  customerPhone,
+  secondaryPhone = '',
+  deliveryAddress,
+  city,
+  district,
+  items,
+  deliveryFee = 0,
+  paymentMethod = 'COD',
+  source = 'manual_pos'
+}) {
+  const cleanPhone = normalizeSLPhone(customerPhone);
+  const cleanSecondary = secondaryPhone ? normalizeSLPhone(secondaryPhone) : '';
+
+  if (!isValidSLPhone(cleanPhone)) {
+    throw new Error('Valid 10-digit Sri Lankan phone number is required.');
+  }
+
+  const customer = await getOrCreateCustomer({
+    phone: cleanPhone,
+    secondaryPhone: cleanSecondary,
+    name: customerName,
+    city,
+    deliveryAddress,
+    district
+  });
+
+  const subtotal = items.reduce((sum, item) => sum + (Number(item.price) * (Number(item.quantity) || 1)), 0);
+  const totalAmount = subtotal + Number(deliveryFee);
+  const orderCode = Math.floor(1000 + Math.random() * 9000).toString();
+
+  const { data: order, error: orderErr } = await supabase
+    .from('orders')
+    .insert([{
+      order_code: orderCode,
+      seller_id: sellerId,
+      customer_id: customer.id,
+      customer_name: customerName.trim(),
+      customer_phone: cleanPhone,
+      secondary_phone: cleanSecondary,
+      delivery_address: deliveryAddress.trim(),
+      city: city.trim(),
+      district: district ? district.trim() : '',
+      items,
+      subtotal,
+      delivery_fee: Number(deliveryFee),
+      total_amount: totalAmount,
+      advance_paid: paymentMethod === 'Bank' ? totalAmount : 0,
+      cod_balance: paymentMethod === 'COD' ? totalAmount : 0,
+      payment_method: paymentMethod,
+      payment_status: paymentMethod === 'Bank' ? 'Paid' : 'Unpaid',
+      status: 'received',
+      source
+    }])
+    .select()
+    .single();
+
+  if (orderErr) throw orderErr;
+
+  // Inventory Decrement & Low Stock Alert
+  for (const item of items) {
+    if (item.id && item.track_stock !== false) {
+      const { data: currentProd } = await supabase
+        .from('products')
+        .select('title, stock_count')
+        .eq('id', item.id)
+        .single();
+
+      if (currentProd) {
+        const remainingStock = Math.max(0, currentProd.stock_count - (item.quantity || 1));
+        await supabase
+          .from('products')
+          .update({ stock_count: remainingStock })
+          .eq('id', item.id);
+
+        if (remainingStock <= 2) {
+          await createNotification(sellerId, {
+            title: 'Low Stock Alert',
+            message: `"${currentProd.title}" is running low (${remainingStock} left in inventory).`,
+            type: 'stock',
+            link: '/products'
+          });
+        }
+      }
+    }
+  }
+
+  await supabase
+    .from('customers')
+    .update({ total_orders: (customer.total_orders || 0) + 1 })
+    .eq('id', customer.id);
+
+  // Trigger New Order Notification
+  await createNotification(sellerId, {
+    title: `New Order #${order.order_code || order.id.slice(0, 4)}`,
+    message: `${order.customer_name} placed an order for ${formatLKR(order.total_amount)} (${order.payment_method}).`,
+    type: 'order',
+    link: `/orders/${order.id}`
+  });
+
+  return order;
+}
+
+export async function updateOrderStatus(orderId, nextStatus, { courierName = null, trackingNumber = null } = {}) {
+  const updates = { status: nextStatus };
+
+  if (nextStatus === 'dispatched') {
+    updates.dispatched_at = new Date().toISOString();
+    if (courierName) updates.courier_name = courierName;
+    if (trackingNumber) updates.tracking_number = trackingNumber;
+  }
+
+  if (nextStatus === 'delivered') {
+    updates.delivered_at = new Date().toISOString();
+    updates.payment_status = 'Paid';
+    updates.cod_balance = 0;
+  }
+
+  const { data, error } = await supabase
+    .from('orders')
+    .update(updates)
+    .eq('id', orderId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function confirmOrderAsBuyer(orderId) {
+  const { data, error } = await supabase
+    .from('orders')
+    .update({
+      buyer_confirmed: true,
+      buyer_confirmed_at: new Date().toISOString()
+    })
+    .eq('id', orderId)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  // Trigger Customer Verification Notification
+  if (data?.seller_id) {
+    await createNotification(data.seller_id, {
+      title: `Order Verified #${data.order_code || data.id.slice(0, 4)}`,
+      message: `${data.customer_name} verified delivery address. Ready to pack!`,
+      type: 'verification',
+      link: `/orders/${data.id}`
+    });
+  }
+
+  return data;
+}
+
+export async function deleteOrdersBatch(orderIds) {
+  if (!orderIds || !orderIds.length) return;
+
+  for (const orderId of orderIds) {
+    const { data: order } = await supabase
+      .from('orders')
+      .select('items, status')
+      .eq('id', orderId)
+      .single();
+
+    if (order && order.status !== 'delivered' && order.status !== 'canceled') {
+      const items = Array.isArray(order.items) ? order.items : [];
+      for (const item of items) {
+        if (item.id) {
+          const { data: liveProduct } = await supabase
+            .from('products')
+            .select('stock_count')
+            .eq('id', item.id)
+            .single();
+
+          if (liveProduct) {
+            const currentStock = Number(liveProduct.stock_count) || 0;
+            const qtyToReturn = Number(item.quantity) || 1;
+            await updateProductStock(item.id, currentStock + qtyToReturn);
+          }
+        }
+      }
+    }
+
+    const { error } = await supabase
+      .from('orders')
+      .delete()
+      .eq('id', orderId);
+
+    if (error) throw error;
+  }
+  return true;
+}
+
+// ----------------------------------------------------
+// SUPER-ADMIN MANAGEMENT
+// ----------------------------------------------------
+
+export async function fetchAllSellersAdmin() {
+  const { data, error } = await supabase
+    .from('sellers')
+    .select('*, orders(id, total_amount, status)')
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+export async function extendSubscription(sellerId, daysToAdd) {
+  const { data: current, error: fetchErr } = await supabase
+    .from('sellers')
+    .select('subscription_expires_at')
+    .eq('id', sellerId)
+    .single();
+
+  if (fetchErr) throw fetchErr;
+
+  const baseDate = current.subscription_expires_at && new Date(current.subscription_expires_at) > new Date()
+    ? new Date(current.subscription_expires_at)
+    : new Date();
+
+  baseDate.setDate(baseDate.getDate() + Number(daysToAdd));
+
+  const { data, error } = await supabase
+    .from('sellers')
+    .update({
+      subscription_status: 'active',
+      subscription_expires_at: baseDate.toISOString(),
+      is_active: true
+    })
+    .eq('id', sellerId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function setCustomSubscriptionExpiry(sellerId, customIsoDate) {
+  const { data, error } = await supabase
+    .from('sellers')
+    .update({
+      subscription_status: new Date(customIsoDate) > new Date() ? 'active' : 'expired',
+      subscription_expires_at: new Date(customIsoDate).toISOString(),
+      is_active: new Date(customIsoDate) > new Date()
+    })
+    .eq('id', sellerId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function toggleStoreActiveStatus(sellerId, currentStatus) {
+  const nextStatus = !currentStatus;
+  const { data, error } = await supabase
+    .from('sellers')
+    .update({
+      is_active: nextStatus,
+      subscription_status: nextStatus ? 'active' : 'suspended'
+    })
+    .eq('id', sellerId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteSellerAdmin(sellerId) {
+  const { error } = await supabase
+    .from('sellers')
+    .delete()
+    .eq('id', sellerId);
+
+  if (error) throw error;
+  return true;
+}
