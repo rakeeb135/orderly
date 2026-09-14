@@ -684,3 +684,107 @@ export async function deleteSellerAdmin(sellerId) {
   if (error) throw error;
   return true;
 }
+
+// ----------------------------------------------------
+// PUSH NOTIFICATIONS
+// ----------------------------------------------------
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+export async function getPushStatus() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    return 'unsupported';
+  }
+  if (Notification.permission === 'denied') return 'denied';
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+    if (subscription && Notification.permission === 'granted') return 'subscribed';
+    return 'not_subscribed';
+  } catch {
+    return 'unsupported';
+  }
+}
+
+export async function subscribeToPush(sellerId, vapidPublicKey) {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    throw new Error('Push notifications are not supported on this device.');
+  }
+
+  // Ask for permission
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') {
+    throw new Error('Notification permission was denied.');
+  }
+
+  const registration = await navigator.serviceWorker.ready;
+
+  // Subscribe (reuses existing subscription if present)
+  let subscription = await registration.pushManager.getSubscription();
+  if (!subscription) {
+    subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+    });
+  }
+
+  // Save to DB (endpoint is UNIQUE, so upsert on conflict)
+  const subJson = subscription.toJSON();
+  const { error } = await supabase
+    .from('push_subscriptions')
+    .upsert(
+      {
+        seller_id: sellerId,
+        endpoint: subJson.endpoint,
+        p256dh: subJson.keys.p256dh,
+        auth: subJson.keys.auth,
+        user_agent: navigator.userAgent,
+      },
+      { onConflict: 'endpoint' }
+    );
+
+  if (error) throw error;
+  return subscription;
+}
+
+export async function unsubscribeFromPush() {
+  if (!('serviceWorker' in navigator)) return;
+
+  const registration = await navigator.serviceWorker.ready;
+  const subscription = await registration.pushManager.getSubscription();
+
+  if (subscription) {
+    const endpoint = subscription.endpoint;
+    await subscription.unsubscribe();
+    await supabase.from('push_subscriptions').delete().eq('endpoint', endpoint);
+  }
+}
+
+export async function triggerPushNotification(sellerId, { title, message, link, orderId }) {
+  try {
+    const { data, error } = await supabase.functions.invoke('send-push', {
+      body: {
+        seller_id: sellerId,
+        title,
+        message,
+        link,
+        order_id: orderId,
+      },
+    });
+    if (error) throw error;
+    return data;
+  } catch (err) {
+    // Non-fatal — push failures should never break the main flow
+    console.warn('[Push] Trigger failed:', err.message || err);
+    return null;
+  }
+}
