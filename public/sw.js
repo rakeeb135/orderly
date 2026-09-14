@@ -1,15 +1,11 @@
 /* ------------------------------------------------------------------ */
-/*  ORDERLY SERVICE WORKER                                             */
+/*  ORDERLY SERVICE WORKER — v5                                        */
 /*                                                                      */
-/*  Strategy:                                                           */
-/*   - App shell cached individually (one failure never kills the batch) */
-/*   - Static assets: stale-while-revalidate                           */
-/*   - Supabase API calls: NEVER cached (always live network)          */
-/*   - Navigation: network-first with a guaranteed Response fallback    */
-/*   - Push notifications: display on 'push', open app on 'click'      */
+/*  Every fetch handler now GUARANTEES a valid Response object.         */
+/*  No path can ever return undefined to respondWith().                */
 /* ------------------------------------------------------------------ */
 
-const CACHE_VERSION = 'orderly-v4'; // v4 — bump to pick up push handlers
+const CACHE_VERSION = 'orderly-v5';
 const APP_SHELL = [
   '/',
   '/manifest.json',
@@ -21,7 +17,7 @@ const APP_SHELL = [
 ];
 
 /* ---------------------------------------------------------------- */
-/*  Install: pre-cache app shell (individually, non-atomic)          */
+/*  Install                                                          */
 /* ---------------------------------------------------------------- */
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -41,7 +37,7 @@ self.addEventListener('install', (event) => {
 });
 
 /* ---------------------------------------------------------------- */
-/*  Activate: clean old caches                                       */
+/*  Activate                                                         */
 /* ---------------------------------------------------------------- */
 self.addEventListener('activate', (event) => {
   event.waitUntil(
@@ -57,7 +53,7 @@ self.addEventListener('activate', (event) => {
 });
 
 /* ---------------------------------------------------------------- */
-/*  Fetch: smart routing                                             */
+/*  Fetch                                                            */
 /* ---------------------------------------------------------------- */
 self.addEventListener('fetch', (event) => {
   const { request } = event;
@@ -65,29 +61,29 @@ self.addEventListener('fetch', (event) => {
 
   if (request.method !== 'GET') return;
 
-  // Never touch Supabase (database, auth, storage, realtime)
+  // Never intercept Supabase
   if (url.hostname.endsWith('.supabase.co') || url.hostname.endsWith('.supabase.in')) {
     return;
   }
 
-  // Never touch cross-origin requests (WhatsApp, analytics, extensions)
+  // Only handle same-origin
   if (url.origin !== self.location.origin) return;
 
   // Skip Vite dev artifacts
   if (url.pathname.startsWith('/src/') || url.pathname.startsWith('/@')) return;
 
-  /* ---- SPA navigation: network-first, ALWAYS a valid Response ---- */
+  /* ------------------------------------------------------------- */
+  /*  Navigation: network-first with a guaranteed Response fallback */
+  /* ------------------------------------------------------------- */
   if (request.mode === 'navigate') {
     event.respondWith(
       (async () => {
         try {
           const networkResponse = await fetch(request);
-
-          if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+          if (networkResponse && networkResponse.status === 200) {
             const clone = networkResponse.clone();
             caches.open(CACHE_VERSION).then((cache) => cache.put('/', clone)).catch(() => {});
           }
-
           return networkResponse;
         } catch {
           const cached = await caches.match('/');
@@ -97,7 +93,6 @@ self.addEventListener('fetch', (event) => {
             '<!doctype html><html><head><meta charset="utf-8"><title>Offline</title><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="font-family:system-ui,sans-serif;text-align:center;padding:60px 20px;color:#111813;background:#F4F6F4"><h1 style="font-weight:900">You are offline</h1><p style="color:#5A655D">Please check your internet connection and try again.</p></body></html>',
             {
               status: 200,
-              statusText: 'OK (offline fallback)',
               headers: { 'Content-Type': 'text/html; charset=utf-8' },
             }
           );
@@ -107,26 +102,49 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  /* ---- Static assets: cache-first with background refresh (SWR) --- */
+  /* ------------------------------------------------------------- */
+  /*  Static assets: cache-first with background refresh (SWR)      */
+  /*  GUARANTEED to return a Response — never undefined.            */
+  /* ------------------------------------------------------------- */
   event.respondWith(
-    caches.match(request).then((cached) => {
-      const networkFetch = fetch(request)
-        .then((response) => {
-          if (response && response.status === 200 && response.type === 'basic') {
-            const clone = response.clone();
-            caches.open(CACHE_VERSION).then((cache) => cache.put(request, clone)).catch(() => {});
-          }
-          return response;
-        })
-        .catch(() => cached);
+    (async () => {
+      const cached = await caches.match(request);
 
-      return cached || networkFetch;
-    })
+      if (cached) {
+        // Serve from cache immediately, refresh in background
+        fetch(request)
+          .then((response) => {
+            if (response && response.status === 200 && response.type === 'basic') {
+              const clone = response.clone();
+              caches.open(CACHE_VERSION).then((cache) => cache.put(request, clone)).catch(() => {});
+            }
+          })
+          .catch(() => {});
+
+        return cached;
+      }
+
+      // Nothing cached → network
+      try {
+        const response = await fetch(request);
+        if (response && response.status === 200 && response.type === 'basic') {
+          const clone = response.clone();
+          caches.open(CACHE_VERSION).then((cache) => cache.put(request, clone)).catch(() => {});
+        }
+        return response;
+      } catch {
+        // Network failed AND nothing cached → return a valid error Response
+        return new Response('', {
+          status: 504,
+          statusText: 'Offline — resource unavailable',
+        });
+      }
+    })()
   );
 });
 
 /* ---------------------------------------------------------------- */
-/*  PUSH: show notification when server sends a push                 */
+/*  PUSH                                                             */
 /* ---------------------------------------------------------------- */
 self.addEventListener('push', (event) => {
   let data = {};
@@ -156,7 +174,7 @@ self.addEventListener('push', (event) => {
 });
 
 /* ---------------------------------------------------------------- */
-/*  NOTIFICATION CLICK: focus existing tab or open a new one          */
+/*  NOTIFICATION CLICK                                               */
 /* ---------------------------------------------------------------- */
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
@@ -168,14 +186,12 @@ self.addEventListener('notificationclick', (event) => {
     clients
       .matchAll({ type: 'window', includeUncontrolled: true })
       .then((windowClients) => {
-        // If the app is already open, focus it and navigate to the order
         for (const client of windowClients) {
           if (client.url.startsWith(self.location.origin) && 'focus' in client) {
             client.navigate(fullUrl);
             return client.focus();
           }
         }
-        // Otherwise open a fresh window
         if (clients.openWindow) {
           return clients.openWindow(fullUrl);
         }
