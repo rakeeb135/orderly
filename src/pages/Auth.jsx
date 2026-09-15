@@ -21,8 +21,8 @@ export default function Auth() {
 
     try {
       const seller = await authenticateSeller(email, password);
-      localStorage.setItem('orderly_active_seller_id', seller.id);
-      localStorage.setItem('orderly_active_handle', seller.handle);
+      localStorage.setItem('ordy_active_seller_id', seller.id);
+      localStorage.setItem('ordy_active_handle', seller.handle);
       navigate(seller.is_super_admin ? '/admin' : '/dashboard');
     } catch (err) {
       setErrorMsg(err.message || 'Login failed.');
@@ -44,8 +44,8 @@ export default function Auth() {
         password,
         whatsappNumber: phone
       });
-      localStorage.setItem('orderly_active_seller_id', newSeller.id);
-      localStorage.setItem('orderly_active_handle', newSeller.handle);
+      localStorage.setItem('ordy_active_seller_id', newSeller.id);
+      localStorage.setItem('ordy_active_handle', newSeller.handle);
       navigate('/dashboard');
     } catch (err) {
       setErrorMsg(err.message || 'Registration failed.');
@@ -61,7 +61,7 @@ export default function Auth() {
           <div className="w-9 h-9 rounded-2xl bg-[#006241] flex items-center justify-center text-white font-black text-base shadow-sm">
             O
           </div>
-          <span className="font-black text-xl tracking-tight text-[#111813]">orderly</span>
+          <span className="font-black text-xl tracking-tight text-[#111813]">ordy</span>
         </div>
         <span className="text-[11px] font-semibold text-[#5A655D] bg-white px-3 py-1 rounded-full border border-[#E7EBE7]">
           0% commission • LK
@@ -116,7 +116,7 @@ export default function Auth() {
               <div>
                 <label className="block font-semibold mb-1">Store Handle (URL) *</label>
                 <div className="flex items-center bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl px-3 py-2 text-xs">
-                  <span className="text-[#5A655D] font-mono select-none">orderly.lk/</span>
+                  <span className="text-[#5A655D] font-mono select-none">ordy.lk/</span>
                   <input
                     type="text"
                     name="handle"
@@ -188,7 +188,7 @@ export default function Auth() {
                   autoComplete="username"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="yourshop@orderly.lk"
+                  placeholder="yourshop@ordy.lk"
                   required
                   className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl text-xs focus:bg-white"
                 />

@@ -127,7 +127,7 @@ export default function Dashboard({ seller }) {
             Welcome back, {seller?.shop_name}
           </h1>
           <p className="text-xs text-[#5A655D] mt-0.5">
-            Your store is live at <span className="font-mono font-bold text-[#006241]">orderly.lk/{seller?.handle}</span>
+            Your store is live at <span className="font-mono font-bold text-[#006241]">ordy.lk/{seller?.handle}</span>
           </p>
         </div>
 
