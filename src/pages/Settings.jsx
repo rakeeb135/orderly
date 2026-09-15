@@ -1,28 +1,36 @@
-import React, { useState, useRef } from 'react';
-import { 
-  Save, 
-  Loader2, 
-  Truck, 
-  Store, 
-  Image as ImageIcon, 
-  Share2, 
-  Upload
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  Save,
+  Loader2,
+  Truck,
+  Store,
+  Image as ImageIcon,
+  Share2,
+  Upload,
+  Bell,
+  BellOff,
+  Smartphone,
 } from 'lucide-react';
 import { supabase } from '../supabase';
-import { updateSellerProfile } from '../services/dbService';
+import {
+  updateSellerProfile,
+  getPushStatus,
+  subscribeToPush,
+  unsubscribeFromPush,
+} from '../services/dbService';
 import { uploadStoreAsset } from '../services/storageService';
 import { notify } from '../components/Toast';
 
 // Official 25 Administrative Districts of Sri Lanka
 const SL_DISTRICTS = [
-  'Colombo', 'Gampaha', 'Kalutara', 
-  'Kandy', 'Matale', 'Nuwara Eliya', 
-  'Galle', 'Matara', 'Hambantota', 
-  'Jaffna', 'Kilinochchi', 'Mannar', 'Vavuniya', 'Mullaitivu', 
-  'Batticaloa', 'Ampara', 'Trincomalee', 
-  'Kurunegala', 'Puttalam', 
-  'Anuradhapura', 'Polonnaruwa', 
-  'Badulla', 'Monaragala', 
+  'Colombo', 'Gampaha', 'Kalutara',
+  'Kandy', 'Matale', 'Nuwara Eliya',
+  'Galle', 'Matara', 'Hambantota',
+  'Jaffna', 'Kilinochchi', 'Mannar', 'Vavuniya', 'Mullaitivu',
+  'Batticaloa', 'Ampara', 'Trincomalee',
+  'Kurunegala', 'Puttalam',
+  'Anuradhapura', 'Polonnaruwa',
+  'Badulla', 'Monaragala',
   'Ratnapura', 'Kegalle'
 ];
 
@@ -33,7 +41,7 @@ export default function Settings({ seller, setSeller }) {
   const [bio, setBio] = useState(seller?.bio || '');
   const [logoUrl, setLogoUrl] = useState(seller?.logo_url || '');
   const [bannerUrl, setBannerUrl] = useState(seller?.banner_url || '');
-  
+
   // Social Channels
   const [whatsapp, setWhatsapp] = useState(seller?.whatsapp_number || '');
   const [instagram, setInstagram] = useState(seller?.instagram_handle || '');
@@ -52,11 +60,70 @@ export default function Settings({ seller, setSeller }) {
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingBanner, setUploadingBanner] = useState(false);
 
+  // Push notification state
+  const [pushStatus, setPushStatus] = useState('checking');
+  const [pushBusy, setPushBusy] = useState(false);
+
   // File Input References
   const logoInputRef = useRef(null);
   const bannerInputRef = useRef(null);
 
-  // Logo Upload Handler
+  /* ---------------------------------------------------------------- */
+  /*  Check push status on mount                                       */
+  /* ---------------------------------------------------------------- */
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const status = await getPushStatus();
+      if (mounted) setPushStatus(status);
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  /* ---------------------------------------------------------------- */
+  /*  Push enable / disable handlers                                   */
+  /* ---------------------------------------------------------------- */
+  const handleEnablePush = async () => {
+    if (!seller?.id) return;
+    const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+    if (!vapidKey) {
+      notify('Push is not configured. Missing VAPID key.', 'error');
+      return;
+    }
+
+    setPushBusy(true);
+    try {
+      await subscribeToPush(seller.id, vapidKey);
+      setPushStatus('subscribed');
+      notify('Notifications enabled on this device!');
+    } catch (err) {
+      notify(err.message || 'Failed to enable notifications', 'error');
+      // Refresh status in case permission was denied
+      const status = await getPushStatus();
+      setPushStatus(status);
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
+  const handleDisablePush = async () => {
+    setPushBusy(true);
+    try {
+      await unsubscribeFromPush();
+      setPushStatus('not_subscribed');
+      notify('Notifications disabled on this device.');
+    } catch (err) {
+      notify(err.message || 'Failed to disable notifications', 'error');
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
+  /* ---------------------------------------------------------------- */
+  /*  File uploads                                                     */
+  /* ---------------------------------------------------------------- */
   const handleLogoUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -72,7 +139,6 @@ export default function Settings({ seller, setSeller }) {
     }
   };
 
-  // Banner Upload Handler
   const handleBannerUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -88,6 +154,9 @@ export default function Settings({ seller, setSeller }) {
     }
   };
 
+  /* ---------------------------------------------------------------- */
+  /*  Save settings                                                    */
+  /* ---------------------------------------------------------------- */
   const handleSave = async (e) => {
     e.preventDefault();
     setSaving(true);
@@ -155,6 +224,77 @@ export default function Settings({ seller, setSeller }) {
         </button>
       </div>
 
+      {/* ============================================================ */}
+      {/*  DEVICE NOTIFICATIONS — PUSH TOGGLE                          */}
+      {/* ============================================================ */}
+      <div className="bg-white border border-[#E7EBE7] rounded-[28px] p-6 shadow-xs space-y-4 text-xs">
+        <div className="flex items-center gap-2 font-black text-sm text-[#111813]">
+          <Smartphone className="w-4 h-4 text-[#006241]" />
+          <span>Device Notifications</span>
+        </div>
+
+        <p className="text-[11px] text-[#5A655D] leading-relaxed">
+          Get an instant alert on this device when a new order arrives — even when Orderly is closed.
+          You can enable it separately on each phone or computer you use.
+        </p>
+
+        {/* Status display */}
+        {pushStatus === 'unsupported' && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 text-[11px] text-amber-800 font-semibold">
+            This browser does not support push notifications. Try installing Orderly as an app first (from the browser menu → "Install app").
+          </div>
+        )}
+
+        {pushStatus === 'denied' && (
+          <div className="bg-rose-50 border border-rose-200 rounded-2xl p-3 text-[11px] text-rose-800 font-semibold">
+            Notifications were blocked. To re-enable: tap the lock icon in your browser's address bar → Notifications → Allow → reload this page.
+          </div>
+        )}
+
+        {pushStatus === 'subscribed' && (
+          <div className="flex items-center justify-between bg-[#E8F0E9] border border-[#C2D6C5] rounded-2xl p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-white flex items-center justify-center shrink-0">
+                <Bell className="w-4 h-4 text-[#006241]" />
+              </div>
+              <div>
+                <div className="font-black text-xs text-[#006241]">Notifications Active</div>
+                <div className="text-[10px] text-[#006241]/70">This device will receive order alerts</div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleDisablePush}
+              disabled={pushBusy}
+              className="px-3.5 py-2 bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-[11px] font-bold transition active:scale-95 disabled:opacity-50 flex items-center gap-1.5"
+            >
+              {pushBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><BellOff className="w-3.5 h-3.5" /> Disable</>}
+            </button>
+          </div>
+        )}
+
+        {(pushStatus === 'not_subscribed' || pushStatus === 'checking') && (
+          <button
+            type="button"
+            onClick={handleEnablePush}
+            disabled={pushBusy || pushStatus === 'checking'}
+            className="w-full py-3.5 bg-[#006241] hover:bg-[#004F34] text-white font-bold rounded-2xl text-xs transition active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {pushBusy || pushStatus === 'checking' ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <>
+                <Bell className="w-4 h-4" /> Enable Notifications on This Device
+              </>
+            )}
+          </button>
+        )}
+
+        <p className="text-[10px] text-[#5A655D] italic">
+          Tip: To enable on your phone, install Orderly first (Share → Add to Home Screen on iPhone, or menu → Install app on Android), then open this page from the installed app.
+        </p>
+      </div>
+
       {/* LIVE STOREFRONT HEADER PREVIEW */}
       <div className="bg-white border border-[#E7EBE7] rounded-[28px] overflow-hidden shadow-xs">
         <div className="px-5 py-3 border-b border-[#E7EBE7] flex justify-between items-center bg-stone-50/50">
@@ -165,9 +305,9 @@ export default function Settings({ seller, setSeller }) {
         <div className="p-5 space-y-3">
           <div className="w-full h-32 sm:h-40 rounded-2xl bg-stone-100 border border-[#E7EBE7] overflow-hidden relative flex items-center justify-center">
             {bannerUrl ? (
-              <img 
-                src={bannerUrl} 
-                alt="Banner preview" 
+              <img
+                src={bannerUrl}
+                alt="Banner preview"
                 className="w-full h-full object-cover"
                 onError={(e) => { e.target.style.display = 'none'; }}
               />
@@ -181,9 +321,9 @@ export default function Settings({ seller, setSeller }) {
           <div className="flex items-center gap-3.5 -mt-8 relative z-10 px-2">
             <div className="w-16 h-16 rounded-2xl bg-[#006241] border-4 border-white shadow-md flex items-center justify-center text-white font-black text-xl overflow-hidden shrink-0">
               {logoUrl ? (
-                <img 
-                  src={logoUrl} 
-                  alt="Logo preview" 
+                <img
+                  src={logoUrl}
+                  alt="Logo preview"
                   className="w-full h-full object-cover"
                   onError={(e) => { e.target.style.display = 'none'; }}
                 />
@@ -398,7 +538,6 @@ export default function Settings({ seller, setSeller }) {
           <span>Delivery Rates & COD Shield</span>
         </div>
 
-        {/* STORE HOME DISTRICT PICKER */}
         <div>
           <label className="block font-semibold mb-1">Store Home District *</label>
           <select

@@ -13,7 +13,13 @@ import {
   Plus,
   Minus,
 } from 'lucide-react';
-import { fetchSellerByHandle, fetchProducts, createOrder, formatLKR } from '../services/dbService';
+import {
+  fetchSellerByHandle,
+  fetchProducts,
+  createOrder,
+  triggerPushNotification,
+  formatLKR,
+} from '../services/dbService';
 
 // Official 25 Administrative Districts of Sri Lanka
 const SL_DISTRICTS = [
@@ -40,13 +46,11 @@ export default function Storefront() {
   const [selectedProductView, setSelectedProductView] = useState(null);
   const [activePhotoIdx, setActivePhotoIdx] = useState(0);
 
-  // Variant + quantity selection state
   const [chosenSize, setChosenSize] = useState(null);
   const [chosenColor, setChosenColor] = useState(null);
   const [chosenQty, setChosenQty] = useState(1);
   const [variantError, setVariantError] = useState('');
 
-  // Checkout fields (auto-filled from local device storage if returning buyer)
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [secondaryPhone, setSecondaryPhone] = useState('');
@@ -56,9 +60,6 @@ export default function Storefront() {
   const [placing, setPlacing] = useState(false);
   const [placedOrderId, setPlacedOrderId] = useState(null);
 
-  /* ---------------------------------------------------------------- */
-  /*  Initial data fetch                                                */
-  /* ---------------------------------------------------------------- */
   useEffect(() => {
     async function load() {
       try {
@@ -78,9 +79,6 @@ export default function Storefront() {
     load();
   }, [handle]);
 
-  /* ---------------------------------------------------------------- */
-  /*  Load local buyer profile                                          */
-  /* ---------------------------------------------------------------- */
   useEffect(() => {
     try {
       const saved = localStorage.getItem(BUYER_STORAGE_KEY);
@@ -94,13 +92,10 @@ export default function Storefront() {
         if (data.city) setCity(data.city);
       }
     } catch {
-      /* ignore storage read errors */
+      /* ignore */
     }
   }, []);
 
-  /* ---------------------------------------------------------------- */
-  /*  Product modal open / close                                        */
-  /* ---------------------------------------------------------------- */
   const openProductModal = (product) => {
     setSelectedProductView(product);
     setActivePhotoIdx(0);
@@ -121,9 +116,6 @@ export default function Storefront() {
     setVariantError('');
   };
 
-  /* ---------------------------------------------------------------- */
-  /*  Add to cart (respects chosenQty)                                  */
-  /* ---------------------------------------------------------------- */
   const addToCartFromModal = () => {
     if (!selectedProductView) return;
 
@@ -172,9 +164,6 @@ export default function Storefront() {
     closeProductModal();
   };
 
-  /* ---------------------------------------------------------------- */
-  /*  Cart totals + delivery logic                                      */
-  /* ---------------------------------------------------------------- */
   const totalItems = cart.reduce((sum, i) => sum + i.quantity, 0);
   const subtotal = cart.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
 
@@ -201,22 +190,16 @@ export default function Storefront() {
 
   const grandTotal = subtotal + calculatedDeliveryFee;
 
-  /* ---------------------------------------------------------------- */
-  /*  Open / close checkout modal                                       */
-  /* ---------------------------------------------------------------- */
   const openCheckout = () => {
-    setPlacedOrderId(null); // Reset any previous success state
+    setPlacedOrderId(null);
     setShowCheckout(true);
   };
 
   const closeCheckout = () => {
     setShowCheckout(false);
-    setPlacedOrderId(null); // Reset success state so next open shows the form
+    setPlacedOrderId(null);
   };
 
-  /* ---------------------------------------------------------------- */
-  /*  Place order                                                       */
-  /* ---------------------------------------------------------------- */
   const handleCheckoutSubmit = async (e) => {
     e.preventDefault();
     if (!phone.trim()) return;
@@ -247,7 +230,7 @@ export default function Storefront() {
         source: 'storefront',
       });
 
-      // Persist profile locally for 1-tap checkout on future visits
+      // Persist buyer profile for 1-tap checkout next time
       try {
         localStorage.setItem(
           BUYER_STORAGE_KEY,
@@ -266,6 +249,15 @@ export default function Storefront() {
 
       setPlacedOrderId(order.id);
       setCart([]);
+
+      // Fire-and-forget push notification to the seller.
+      // Non-blocking: if this fails, the order still succeeds.
+      triggerPushNotification(seller.id, {
+        title: `New Order #${order.order_code || order.id.slice(0, 4)}`,
+        message: `${cleanName || 'A customer'} placed an order for ${formatLKR(order.total_amount)} (${order.payment_method || 'COD'})`,
+        link: `/orders/${order.id}`,
+        orderId: order.id,
+      }).catch(() => {});
     } catch (err) {
       alert(err.message || 'Checkout failed');
     } finally {
@@ -296,7 +288,6 @@ export default function Storefront() {
 
   return (
     <div className="min-h-screen bg-[#F4F6F4] text-[#111813] font-sans pb-24">
-      {/* Mini Header */}
       <header className="sticky top-0 z-30 bg-[#F4F6F4]/90 backdrop-blur-md px-4 py-3 flex items-center justify-between max-w-lg mx-auto border-b border-[#E7EBE7]/50">
         <div className="flex items-center gap-2 font-black text-sm">
           <Store className="w-4 h-4 text-[#006241]" />
@@ -316,7 +307,6 @@ export default function Storefront() {
       </header>
 
       <main className="max-w-lg mx-auto px-4 space-y-4 pt-2">
-        {/* Brand Banner */}
         <div className="bg-white border border-[#E7EBE7] rounded-[32px] overflow-hidden shadow-xs">
           {seller.banner_url ? (
             <div className="w-full h-36 sm:h-44 bg-stone-100 overflow-hidden">
@@ -338,7 +328,6 @@ export default function Storefront() {
             <h1 className="text-xl font-black tracking-tight">{seller.shop_name}</h1>
             {seller.bio && <p className="text-xs text-[#5A655D] max-w-sm mx-auto leading-relaxed">{seller.bio}</p>}
 
-            {/* Social Buttons */}
             <div className="flex items-center justify-center gap-2 pt-2 flex-wrap">
               {seller.whatsapp_number && (
                 <a
@@ -358,9 +347,6 @@ export default function Storefront() {
                   rel="noopener noreferrer"
                   className="px-3.5 py-1.5 bg-stone-100 hover:bg-stone-200 text-[#111813] rounded-full text-xs font-bold flex items-center gap-1.5 transition active:scale-95"
                 >
-                  <svg className="w-3.5 h-3.5 text-pink-600" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
-                  </svg>
                   <span>@{seller.instagram_handle}</span>
                 </a>
               )}
@@ -372,9 +358,6 @@ export default function Storefront() {
                   rel="noopener noreferrer"
                   className="px-3.5 py-1.5 bg-stone-100 hover:bg-stone-200 text-[#111813] rounded-full text-xs font-bold flex items-center gap-1.5 transition active:scale-95"
                 >
-                  <svg className="w-3.5 h-3.5 text-black" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.24 1.07-.14 1.61.24 1.64 1.82 2.89 3.5 2.73 1.35-.04 2.56-.89 3.01-2.16.27-.72.33-1.5.31-2.28-.02-4.93-.01-9.87-.01-14.8z"/>
-                  </svg>
                   <span>@{seller.tiktok_handle}</span>
                 </a>
               )}
@@ -386,9 +369,6 @@ export default function Storefront() {
                   rel="noopener noreferrer"
                   className="px-3.5 py-1.5 bg-stone-100 hover:bg-stone-200 text-[#111813] rounded-full text-xs font-bold flex items-center gap-1.5 transition active:scale-95"
                 >
-                  <svg className="w-3.5 h-3.5 text-blue-600" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-                  </svg>
                   <span>Facebook</span>
                 </a>
               )}
@@ -405,7 +385,6 @@ export default function Storefront() {
           </div>
         </div>
 
-        {/* Product Catalog Grid */}
         <div className="grid grid-cols-2 gap-3">
           {products.length === 0 ? (
             <div className="col-span-2 bg-white border border-[#E7EBE7] rounded-[24px] p-8 text-center text-xs text-[#5A655D]">
@@ -464,7 +443,6 @@ export default function Storefront() {
         </div>
       </main>
 
-      {/* Product Detail Modal */}
       {selectedProductView && (
         <div className="fixed inset-0 bg-[#111813]/70 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
           <div className="bg-white w-full sm:max-w-md rounded-t-[32px] sm:rounded-[32px] p-6 shadow-2xl space-y-4 max-h-[92dvh] overflow-y-auto text-[#111813]">
@@ -475,7 +453,6 @@ export default function Storefront() {
               </button>
             </div>
 
-            {/* Photo Viewer */}
             <div className="space-y-2">
               <div className="w-full h-64 rounded-2xl bg-stone-100 border border-[#E7EBE7] overflow-hidden">
                 {selectedProductView.photo_urls?.[activePhotoIdx] ? (
@@ -525,7 +502,6 @@ export default function Storefront() {
               )}
             </div>
 
-            {/* Variant Selection */}
             {(modalSizes.length > 0 || modalColors.length > 0) && (
               <div className="space-y-3 pt-3 border-t border-[#E7EBE7]">
                 {modalColors.length > 0 && (
@@ -575,23 +551,9 @@ export default function Storefront() {
                     </div>
                   </div>
                 )}
-
-                {seller.whatsapp_number && (
-                  <div className="pt-1">
-                    <a
-                      href={`https://wa.me/${cleanWaNumber}?text=${encodeURIComponent(`Hi ${seller.shop_name}, I'm looking at "${selectedProductView.title}". Do you have other options?`)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[11px] text-[#006241] hover:underline font-semibold flex items-center gap-1"
-                    >
-                      <MessageCircle className="w-3.5 h-3.5" /> Looking for another color or size? Ask on WhatsApp
-                    </a>
-                  </div>
-                )}
               </div>
             )}
 
-            {/* Quantity Selector */}
             <div className="flex items-center justify-between bg-stone-50 border border-[#E7EBE7] rounded-xl p-3">
               <span className="text-xs font-bold text-[#5A655D]">Quantity</span>
               <div className="flex items-center gap-3">
@@ -600,7 +562,6 @@ export default function Storefront() {
                   onClick={() => setChosenQty((q) => Math.max(1, q - 1))}
                   disabled={chosenQty <= 1}
                   className="w-8 h-8 rounded-lg bg-white border border-[#E7EBE7] flex items-center justify-center disabled:opacity-40 active:scale-95 transition"
-                  aria-label="Decrease quantity"
                 >
                   <Minus className="w-3.5 h-3.5" />
                 </button>
@@ -609,7 +570,6 @@ export default function Storefront() {
                   type="button"
                   onClick={() => setChosenQty((q) => Math.min(99, q + 1))}
                   className="w-8 h-8 rounded-lg bg-white border border-[#E7EBE7] flex items-center justify-center active:scale-95 transition"
-                  aria-label="Increase quantity"
                 >
                   <Plus className="w-3.5 h-3.5" />
                 </button>
@@ -634,7 +594,6 @@ export default function Storefront() {
         </div>
       )}
 
-      {/* Floating Bottom Cart */}
       {totalItems > 0 && !showCheckout && (
         <div className="fixed bottom-4 left-4 right-4 max-w-lg mx-auto bg-[#111813] text-white p-3.5 rounded-[28px] shadow-2xl flex justify-between items-center z-40">
           <span className="text-xs font-black pl-2">{totalItems} item(s) • {formatLKR(subtotal)}</span>
@@ -647,13 +606,12 @@ export default function Storefront() {
         </div>
       )}
 
-      {/* Checkout Drawer */}
       {showCheckout && (
         <div className="fixed inset-0 bg-[#111813]/70 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
           <div className="bg-white w-full sm:max-w-md rounded-t-[32px] sm:rounded-[32px] p-6 shadow-2xl space-y-4 max-h-[92dvh] overflow-y-auto text-[#111813]">
             <div className="flex justify-between items-center border-b border-[#E7EBE7] pb-3">
               <h3 className="font-black text-sm">Delivery & Checkout</h3>
-              <button onClick={closeCheckout} className="text-stone-400 hover:text-black" aria-label="Close">
+              <button onClick={closeCheckout} className="text-stone-400 hover:text-black">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -680,7 +638,6 @@ export default function Storefront() {
               </div>
             ) : (
               <form onSubmit={handleCheckoutSubmit} className="space-y-3 text-xs">
-                {/* Financial Summary */}
                 <div className="bg-[#F4F6F4] p-3 rounded-2xl border border-[#E7EBE7] space-y-1.5">
                   {cart.map((i) => (
                     <div key={i.itemKey || i.id} className="flex justify-between items-center">
@@ -743,7 +700,7 @@ export default function Storefront() {
                     type="tel"
                     value={secondaryPhone}
                     onChange={(e) => setSecondaryPhone(e.target.value)}
-                    placeholder="0719876543 (Recommended if primary is busy)"
+                    placeholder="0719876543"
                     className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl font-mono font-medium"
                   />
                 </div>
