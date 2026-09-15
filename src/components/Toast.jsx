@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AlertCircle, CheckCircle2, X } from 'lucide-react';
 
 export const notify = (message, type = 'success') => {
-  window.dispatchEvent(new CustomEvent('orderly-toast', { detail: { message, type } }));
+  window.dispatchEvent(new CustomEvent('ordy-toast', { detail: { message, type } }));
 };
 
 export default function Toast() {
@@ -18,8 +18,8 @@ export default function Toast() {
       }, 3500);
     };
 
-    window.addEventListener('orderly-toast', handleToast);
-    return () => window.removeEventListener('orderly-toast', handleToast);
+    window.addEventListener('ordy-toast', handleToast);
+    return () => window.removeEventListener('ordy-toast', handleToast);
   }, []);
 
   return (

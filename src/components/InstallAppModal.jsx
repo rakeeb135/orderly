@@ -1,22 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { Download, Share, PlusSquare, X } from 'lucide-react';
 
-export default function InstallAppModal({ shopName = 'Orderly' }) {
+export default function InstallAppModal({ shopName = 'Ordy' }) {
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [showPrompt, setShowPrompt] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
 
   useEffect(() => {
-    // Check if device is iOS
     const userAgent = window.navigator.userAgent.toLowerCase();
     const isIosDevice = /iphone|ipad|ipod/.test(userAgent);
     setIsIOS(isIosDevice);
 
-    // Check if already in standalone standalone PWA mode
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
     if (isStandalone) return;
 
-    // Capture Android/Chrome install prompt
     const handleBeforeInstall = (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
@@ -25,8 +22,7 @@ export default function InstallAppModal({ shopName = 'Orderly' }) {
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
 
-    // For iOS users who haven't installed, prompt after a short delay
-    if (isIosDevice && !localStorage.getItem('orderly_pwa_dismissed')) {
+    if (isIosDevice && !localStorage.getItem('ordy_pwa_dismissed')) {
       const timer = setTimeout(() => setShowPrompt(true), 3000);
       return () => clearTimeout(timer);
     }
@@ -47,7 +43,7 @@ export default function InstallAppModal({ shopName = 'Orderly' }) {
 
   const handleDismiss = () => {
     setShowPrompt(false);
-    localStorage.setItem('orderly_pwa_dismissed', 'true');
+    localStorage.setItem('ordy_pwa_dismissed', 'true');
   };
 
   if (!showPrompt) return null;

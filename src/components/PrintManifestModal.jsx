@@ -27,9 +27,6 @@ export default function PrintManifestModal({ isOpen, onClose, orders = [], selle
   const pagesOf4 = chunkArray(orders, 4);
   const pagesOf8 = chunkArray(orders, 8);
 
-  /* ------------------------------------------------------------------ */
-  /* PRINT STYLESHEET (Pure Black & White, No Background Colors)          */
-  /* ------------------------------------------------------------------ */
   const printCss = `
     @media print {
       html, body {
@@ -123,9 +120,6 @@ export default function PrintManifestModal({ isOpen, onClose, orders = [], selle
     }
   `;
 
-  /* ------------------------------------------------------------------ */
-  /* PRINT DOCUMENT TEMPLATE (Professional, Clean, Zero Backgrounds)     */
-  /* ------------------------------------------------------------------ */
   const printRoot = (
     <div id="print-root" className="hidden print:block text-black bg-white font-sans">
       <style dangerouslySetInnerHTML={{ __html: printCss }} />
@@ -137,12 +131,12 @@ export default function PrintManifestModal({ isOpen, onClose, orders = [], selle
             <div key={pageIdx} className="a4-page">
               {pageOrders.map((ord) => (
                 <div key={ord.id} className="label-box-4 flex flex-col justify-between text-xs leading-normal">
-                  
+
                   {/* Top Store & Order Identification */}
                   <div className="border-b-2 border-black pb-2 flex justify-between items-start">
                     <div>
                       <div className="font-black text-sm uppercase tracking-wide">{seller?.shop_name || 'STORE'}</div>
-                      <div className="text-[10px] font-mono text-black">Store Link: orderly.lk/{seller?.handle}</div>
+                      <div className="text-[10px] font-mono text-black">Store Link: ordy.lk/{seller?.handle}</div>
                       <div className="text-[10px] font-mono text-black">WhatsApp: {seller?.whatsapp_number}</div>
                     </div>
                     <div className="text-right">
@@ -153,7 +147,7 @@ export default function PrintManifestModal({ isOpen, onClose, orders = [], selle
                     </div>
                   </div>
 
-                  {/* Customer & Destination Details (Includes Secondary Phone) */}
+                  {/* Customer & Destination Details */}
                   <div className="my-1.5 space-y-1 text-xs">
                     <div className="font-black uppercase text-[10px] text-black tracking-wider border-b border-black pb-0.5">
                       Delivery Recipient
@@ -190,7 +184,7 @@ export default function PrintManifestModal({ isOpen, onClose, orders = [], selle
                     </div>
                   </div>
 
-                  {/* Clear COD / Payment Box (No Background Fill for Thermal/Cheap Printers) */}
+                  {/* Clear COD / Payment Box */}
                   <div className="p-2 rounded text-center border-2 border-black mt-1">
                     <div className="text-[10px] font-black uppercase tracking-wider">
                       {ord.payment_method === 'COD' ? 'CASH ON DELIVERY (COD)' : 'PREPAID ORDER'}
@@ -217,7 +211,7 @@ export default function PrintManifestModal({ isOpen, onClose, orders = [], selle
                   <div className="border-b border-black pb-1 flex justify-between items-start">
                     <div>
                       <div className="font-black text-xs uppercase">{seller?.shop_name}</div>
-                      <div className="text-[9px] font-mono">orderly.lk/{seller?.handle} • {seller?.whatsapp_number}</div>
+                      <div className="text-[9px] font-mono">ordy.lk/{seller?.handle} • {seller?.whatsapp_number}</div>
                     </div>
                     <div className="text-right">
                       <div className="font-black text-xs">#{ord.order_code || ord.id.slice(0, 4)}</div>
@@ -254,8 +248,8 @@ export default function PrintManifestModal({ isOpen, onClose, orders = [], selle
               <div className="border-b-2 border-black pb-2 flex justify-between items-start">
                 <div>
                   <div className="font-black text-base uppercase">{seller?.shop_name}</div>
-                  <div className="text-[10px] font-mono">Store: orderly.lk/{seller?.handle}</div>
-                  <div className="text-[10px] font-mono">Tel: {seller?.whatsapp_number}</div>
+                  <div className="text-[10px] font-medium">Store Link: ordy.lk/{seller?.handle}</div>
+                  <div className="text-[10px] font-mono">Hotline: {seller?.whatsapp_number}</div>
                 </div>
                 <div className="text-right">
                   <div className="font-black text-xl">#{ord.order_code || ord.id.slice(0, 4)}</div>
@@ -302,7 +296,7 @@ export default function PrintManifestModal({ isOpen, onClose, orders = [], selle
               </div>
 
               <div className="text-[9px] text-center font-mono mt-1">
-                Generated via Orderly.lk
+                Generated via Ordy.lk
               </div>
             </div>
           ))}
@@ -470,7 +464,7 @@ export default function PrintManifestModal({ isOpen, onClose, orders = [], selle
                     <Truck className="w-4 h-4" />
                   </div>
                   <div>
-                    <div className="font-bold text-xxs">Courier Handover Sheet (Pickup Manifest)</div>
+                    <div className="font-bold text-xs">Courier Handover Sheet (Pickup Manifest)</div>
                     <div className="text-[11px] text-[#71717A] mt-0.5">Summary table with rider signature line for custody proof.</div>
                   </div>
                 </div>
