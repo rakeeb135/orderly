@@ -22,7 +22,7 @@ function ProtectedShell() {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  const sellerId = localStorage.getItem('orderly_active_seller_id');
+  const sellerId = localStorage.getItem('ordy_active_seller_id');
 
   const loadData = async () => {
     if (!sellerId) {
@@ -38,8 +38,8 @@ function ProtectedShell() {
         .single();
 
       if (error || !data) {
-        localStorage.removeItem('orderly_active_seller_id');
-        localStorage.removeItem('orderly_active_handle');
+        localStorage.removeItem('ordy_active_seller_id');
+        localStorage.removeItem('ordy_active_handle');
         navigate('/login');
         return;
       }
@@ -113,7 +113,7 @@ function ProtectedShell() {
 
           <button
             onClick={() => {
-              localStorage.removeItem('orderly_active_seller_id');
+              localStorage.removeItem('ordy_active_seller_id');
               navigate('/login');
             }}
             className="text-xs font-semibold text-[#5A655D] hover:underline"

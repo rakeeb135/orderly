@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
 import { NavLink, Outlet, useNavigate, Link } from 'react-router-dom';
-import { 
-  Home, 
-  FileText, 
-  Tag, 
-  Users, 
-  Settings, 
-  ExternalLink, 
-  Plus, 
-  LogOut, 
+import {
+  Home,
+  FileText,
+  Tag,
+  Users,
+  Settings,
+  ExternalLink,
+  Plus,
+  LogOut,
   Store
 } from 'lucide-react';
 import POSModal from './POSModal';
@@ -21,8 +21,8 @@ export default function Layout({ seller, setSeller, products, setProducts, onOrd
   const navigate = useNavigate();
 
   const handleLogout = () => {
-    localStorage.removeItem('orderly_active_seller_id');
-    localStorage.removeItem('orderly_active_handle');
+    localStorage.removeItem('ordy_active_seller_id');
+    localStorage.removeItem('ordy_active_handle');
     navigate('/login');
   };
 
@@ -37,7 +37,7 @@ export default function Layout({ seller, setSeller, products, setProducts, onOrd
   return (
     <div className="min-h-screen bg-[#F4F6F4] text-[#111813] font-sans flex flex-col md:flex-row">
       <Toast />
-      <InstallAppModal shopName={seller?.shop_name || 'Orderly'} />
+      <InstallAppModal shopName={seller?.shop_name || 'Ordy'} />
 
       {/* DESKTOP SIDEBAR */}
       <aside className="hidden md:flex flex-col w-64 bg-white border-r border-[#E7EBE7] p-5 justify-between shrink-0 fixed inset-y-0 left-0 z-30">
@@ -127,7 +127,7 @@ export default function Layout({ seller, setSeller, products, setProducts, onOrd
         </div>
       </aside>
 
-      {/* MOBILE TOP BAR (Balanced & Non-Clipped) */}
+      {/* MOBILE TOP BAR */}
       <header className="md:hidden sticky top-0 z-30 bg-[#F4F6F4]/90 backdrop-blur-md px-4 py-3 flex items-center justify-between border-b border-[#E7EBE7]">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-8 h-8 rounded-xl bg-[#006241] flex items-center justify-center text-white font-bold text-xs shadow-xs overflow-hidden shrink-0">
@@ -140,7 +140,6 @@ export default function Layout({ seller, setSeller, products, setProducts, onOrd
           <span className="font-extrabold text-sm truncate">{seller?.shop_name || 'My Store'}</span>
         </div>
 
-        {/* Right Action Cluster */}
         <div className="flex items-center gap-2">
           <NotificationCenter sellerId={seller?.id} />
 
