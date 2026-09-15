@@ -68,9 +68,6 @@ export default function Settings({ seller, setSeller }) {
   const logoInputRef = useRef(null);
   const bannerInputRef = useRef(null);
 
-  /* ---------------------------------------------------------------- */
-  /*  Check push status on mount                                       */
-  /* ---------------------------------------------------------------- */
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -82,9 +79,6 @@ export default function Settings({ seller, setSeller }) {
     };
   }, []);
 
-  /* ---------------------------------------------------------------- */
-  /*  Push enable / disable handlers                                   */
-  /* ---------------------------------------------------------------- */
   const handleEnablePush = async () => {
     if (!seller?.id) return;
     const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
@@ -100,7 +94,6 @@ export default function Settings({ seller, setSeller }) {
       notify('Notifications enabled on this device!');
     } catch (err) {
       notify(err.message || 'Failed to enable notifications', 'error');
-      // Refresh status in case permission was denied
       const status = await getPushStatus();
       setPushStatus(status);
     } finally {
@@ -121,9 +114,6 @@ export default function Settings({ seller, setSeller }) {
     }
   };
 
-  /* ---------------------------------------------------------------- */
-  /*  File uploads                                                     */
-  /* ---------------------------------------------------------------- */
   const handleLogoUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -154,9 +144,6 @@ export default function Settings({ seller, setSeller }) {
     }
   };
 
-  /* ---------------------------------------------------------------- */
-  /*  Save settings                                                    */
-  /* ---------------------------------------------------------------- */
   const handleSave = async (e) => {
     e.preventDefault();
     setSaving(true);
@@ -198,7 +185,7 @@ export default function Settings({ seller, setSeller }) {
       });
 
       setSeller(updated);
-      localStorage.setItem('orderly_active_handle', updated.handle);
+      localStorage.setItem('ordy_active_handle', updated.handle);
       notify('Store brand and settings updated successfully!');
     } catch (err) {
       notify(err.message || 'Failed to save settings', 'error');
@@ -224,9 +211,7 @@ export default function Settings({ seller, setSeller }) {
         </button>
       </div>
 
-      {/* ============================================================ */}
-      {/*  DEVICE NOTIFICATIONS — PUSH TOGGLE                          */}
-      {/* ============================================================ */}
+      {/* DEVICE NOTIFICATIONS — PUSH TOGGLE */}
       <div className="bg-white border border-[#E7EBE7] rounded-[28px] p-6 shadow-xs space-y-4 text-xs">
         <div className="flex items-center gap-2 font-black text-sm text-[#111813]">
           <Smartphone className="w-4 h-4 text-[#006241]" />
@@ -234,14 +219,13 @@ export default function Settings({ seller, setSeller }) {
         </div>
 
         <p className="text-[11px] text-[#5A655D] leading-relaxed">
-          Get an instant alert on this device when a new order arrives — even when Orderly is closed.
+          Get an instant alert on this device when a new order arrives — even when Ordy is closed.
           You can enable it separately on each phone or computer you use.
         </p>
 
-        {/* Status display */}
         {pushStatus === 'unsupported' && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 text-[11px] text-amber-800 font-semibold">
-            This browser does not support push notifications. Try installing Orderly as an app first (from the browser menu → "Install app").
+            This browser does not support push notifications. Try installing Ordy as an app first (from the browser menu → "Install app").
           </div>
         )}
 
@@ -291,7 +275,7 @@ export default function Settings({ seller, setSeller }) {
         )}
 
         <p className="text-[10px] text-[#5A655D] italic">
-          Tip: To enable on your phone, install Orderly first (Share → Add to Home Screen on iPhone, or menu → Install app on Android), then open this page from the installed app.
+          Tip: To enable on your phone, install Ordy first (Share → Add to Home Screen on iPhone, or menu → Install app on Android), then open this page from the installed app.
         </p>
       </div>
 
@@ -333,7 +317,7 @@ export default function Settings({ seller, setSeller }) {
             </div>
             <div className="pt-6 min-w-0">
               <div className="font-extrabold text-sm text-[#111813] truncate">{shopName || 'Store Name'}</div>
-              <div className="text-[11px] text-[#006241] font-mono font-bold">orderly.lk/{handle || 'handle'}</div>
+              <div className="text-[11px] text-[#006241] font-mono font-bold">ordy.lk/{handle || 'handle'}</div>
             </div>
           </div>
           {bio && <p className="text-xs text-[#5A655D] px-2 pt-1">{bio}</p>}
@@ -444,7 +428,7 @@ export default function Settings({ seller, setSeller }) {
           <div>
             <label className="block font-semibold mb-1">Store URL Handle *</label>
             <div className="flex items-center bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl px-3 py-2 text-xs">
-              <span className="text-[#5A655D] font-mono select-none">orderly.lk/</span>
+              <span className="text-[#5A655D] font-mono select-none">ordy.lk/</span>
               <input
                 type="text"
                 value={handle}

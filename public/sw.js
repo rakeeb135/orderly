@@ -1,11 +1,11 @@
 /* ------------------------------------------------------------------ */
-/*  ORDERLY SERVICE WORKER — v5                                        */
+/*  ORDY SERVICE WORKER — v1 (rebrand)                                 */
 /*                                                                      */
-/*  Every fetch handler now GUARANTEES a valid Response object.         */
+/*  Every fetch handler GUARANTEES a valid Response object.             */
 /*  No path can ever return undefined to respondWith().                */
 /* ------------------------------------------------------------------ */
 
-const CACHE_VERSION = 'orderly-v5';
+const CACHE_VERSION = 'ordy-v1';
 const APP_SHELL = [
   '/',
   '/manifest.json',
@@ -72,9 +72,7 @@ self.addEventListener('fetch', (event) => {
   // Skip Vite dev artifacts
   if (url.pathname.startsWith('/src/') || url.pathname.startsWith('/@')) return;
 
-  /* ------------------------------------------------------------- */
-  /*  Navigation: network-first with a guaranteed Response fallback */
-  /* ------------------------------------------------------------- */
+  /* ---- Navigation: network-first with guaranteed Response ---- */
   if (request.mode === 'navigate') {
     event.respondWith(
       (async () => {
@@ -102,16 +100,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  /* ------------------------------------------------------------- */
-  /*  Static assets: cache-first with background refresh (SWR)      */
-  /*  GUARANTEED to return a Response — never undefined.            */
-  /* ------------------------------------------------------------- */
+  /* ---- Static assets: cache-first with background refresh (SWR) ---- */
   event.respondWith(
     (async () => {
       const cached = await caches.match(request);
 
       if (cached) {
-        // Serve from cache immediately, refresh in background
         fetch(request)
           .then((response) => {
             if (response && response.status === 200 && response.type === 'basic') {
@@ -124,7 +118,6 @@ self.addEventListener('fetch', (event) => {
         return cached;
       }
 
-      // Nothing cached → network
       try {
         const response = await fetch(request);
         if (response && response.status === 200 && response.type === 'basic') {
@@ -133,7 +126,6 @@ self.addEventListener('fetch', (event) => {
         }
         return response;
       } catch {
-        // Network failed AND nothing cached → return a valid error Response
         return new Response('', {
           status: 504,
           statusText: 'Offline — resource unavailable',
@@ -152,15 +144,15 @@ self.addEventListener('push', (event) => {
   try {
     data = event.data ? event.data.json() : {};
   } catch {
-    data = { title: 'Orderly', body: event.data ? event.data.text() : 'New notification' };
+    data = { title: 'Ordy', body: event.data ? event.data.text() : 'New notification' };
   }
 
-  const title = data.title || 'Orderly';
+  const title = data.title || 'Ordy';
   const options = {
     body: data.body || 'You have a new notification',
     icon: data.icon || '/icon-192.png',
     badge: data.badge || '/icon-192.png',
-    tag: data.order_id ? `order-${data.order_id}` : 'orderly-notification',
+    tag: data.order_id ? `order-${data.order_id}` : 'ordy-notification',
     renotify: true,
     vibrate: [200, 100, 200],
     requireInteraction: false,

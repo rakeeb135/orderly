@@ -1,22 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { 
-  ShieldCheck, 
-  Calendar, 
-  ExternalLink, 
-  Search, 
-  Loader2, 
+import {
+  ShieldCheck,
+  Calendar,
+  ExternalLink,
+  Search,
+  Loader2,
   Power,
   Trash2,
   X
 } from 'lucide-react';
-import { 
-  fetchAllSellersAdmin, 
-  extendSubscription, 
-  setCustomSubscriptionExpiry, 
-  toggleStoreActiveStatus, 
+import {
+  fetchAllSellersAdmin,
+  extendSubscription,
+  setCustomSubscriptionExpiry,
+  toggleStoreActiveStatus,
   deleteSellerAdmin,
-  formatLKR 
+  formatLKR
 } from '../services/dbService';
 import { notify } from '../components/Toast';
 
@@ -29,13 +29,13 @@ export default function AdminPortal() {
   const [updatingId, setUpdatingId] = useState(null);
   const navigate = useNavigate();
 
-  const activeSellerId = localStorage.getItem('orderly_active_seller_id');
+  const activeSellerId = localStorage.getItem('ordy_active_seller_id');
 
   const loadAllShops = async () => {
     try {
       setLoading(true);
       const data = await fetchAllSellersAdmin();
-      
+
       const me = data.find((s) => s.id === activeSellerId);
       if (!me || !me.is_super_admin) {
         notify('Access denied: Super-Admin authorization required.', 'error');
@@ -126,9 +126,9 @@ export default function AdminPortal() {
 
   const filteredShops = sellers.filter((s) => {
     const q = search.toLowerCase().trim();
-    return !q || 
-      s.shop_name?.toLowerCase().includes(q) || 
-      s.handle?.toLowerCase().includes(q) || 
+    return !q ||
+      s.shop_name?.toLowerCase().includes(q) ||
+      s.handle?.toLowerCase().includes(q) ||
       s.whatsapp_number?.includes(q) ||
       s.email?.toLowerCase().includes(q);
   });
@@ -154,7 +154,7 @@ export default function AdminPortal() {
   return (
     <div className="min-h-screen bg-[#F4F6F4] text-[#111813] font-sans p-4 sm:p-8">
       <div className="max-w-6xl mx-auto space-y-6">
-        
+
         {/* Super-Admin Top Bar */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white border border-[#E7EBE7] rounded-[28px] p-6 shadow-xs">
           <div className="flex items-center gap-3">
@@ -162,7 +162,7 @@ export default function AdminPortal() {
               <ShieldCheck className="w-5 h-5 text-[#25D366]" />
             </div>
             <div>
-              <h1 className="text-xl font-black tracking-tight">Orderly Platform Operator</h1>
+              <h1 className="text-xl font-black tracking-tight">Ordy Platform Operator</h1>
               <p className="text-xs text-[#5A655D]">Super-Admin Console & Store Governance</p>
             </div>
           </div>
@@ -305,7 +305,6 @@ export default function AdminPortal() {
 
                       <td className="py-3.5 pl-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          {/* Toggle Active / Suspend */}
                           <button
                             onClick={() => handleToggleActive(shop)}
                             disabled={isBusy}
@@ -319,7 +318,6 @@ export default function AdminPortal() {
                             <Power className="w-3.5 h-3.5" />
                           </button>
 
-                          {/* Permanent Delete Button */}
                           {shop.id !== activeSellerId && (
                             <button
                               onClick={() => handleDeleteShop(shop)}
