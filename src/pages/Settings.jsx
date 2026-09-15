@@ -10,6 +10,7 @@ import {
   Bell,
   BellOff,
   Smartphone,
+  Landmark,
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import {
@@ -54,6 +55,12 @@ export default function Settings({ seller, setSeller }) {
   const [outstationFee, setOutstationFee] = useState(seller?.outstation_delivery_fee ?? 450);
   const [codEnabled, setCodEnabled] = useState(seller?.cod_enabled !== false);
   const [prepayHighRisk, setPrepayHighRisk] = useState(seller?.require_prepay_high_risk || false);
+
+  // Bank Transfer / Payment Collection
+  const [bankName, setBankName] = useState(seller?.bank_details?.bank_name || '');
+  const [accountName, setAccountName] = useState(seller?.bank_details?.account_name || '');
+  const [accountNumber, setAccountNumber] = useState(seller?.bank_details?.account_number || '');
+  const [bankBranch, setBankBranch] = useState(seller?.bank_details?.branch || '');
 
   // States
   const [saving, setSaving] = useState(false);
@@ -181,7 +188,13 @@ export default function Settings({ seller, setSeller }) {
         delivery_fee: Number(deliveryFee),
         outstation_delivery_fee: Number(outstationFee),
         cod_enabled: codEnabled,
-        require_prepay_high_risk: prepayHighRisk
+        require_prepay_high_risk: prepayHighRisk,
+        bank_details: {
+          bank_name: bankName.trim(),
+          account_name: accountName.trim(),
+          account_number: accountNumber.trim(),
+          branch: bankBranch.trim(),
+        },
       });
 
       setSeller(updated);
@@ -193,6 +206,8 @@ export default function Settings({ seller, setSeller }) {
       setSaving(false);
     }
   };
+
+  const hasBankDetails = Boolean(bankName.trim() || accountNumber.trim());
 
   return (
     <form onSubmit={handleSave} className="space-y-5 max-w-2xl mx-auto pb-12">
@@ -588,6 +603,71 @@ export default function Settings({ seller, setSeller }) {
             />
           </div>
         </div>
+      </div>
+
+      {/* PAYMENT COLLECTION — BANK DETAILS */}
+      <div className="bg-white border border-[#E7EBE7] rounded-[28px] p-6 shadow-xs space-y-4 text-xs">
+        <div className="flex items-center gap-2 font-black text-sm text-[#111813]">
+          <Landmark className="w-4 h-4 text-[#006241]" />
+          <span>Payment Collection</span>
+        </div>
+
+        <p className="text-[11px] text-[#5A655D] leading-relaxed">
+          Add your bank account details so buyers can pay via bank transfer. If left empty, only Cash on Delivery will be offered at checkout.
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block font-semibold mb-1">Bank Name</label>
+            <input
+              type="text"
+              value={bankName}
+              onChange={(e) => setBankName(e.target.value)}
+              placeholder="e.g. Commercial Bank of Ceylon"
+              className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl font-semibold"
+            />
+          </div>
+
+          <div>
+            <label className="block font-semibold mb-1">Account Name</label>
+            <input
+              type="text"
+              value={accountName}
+              onChange={(e) => setAccountName(e.target.value)}
+              placeholder="e.g. Cinnamon Bay (Pvt) Ltd"
+              className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl"
+            />
+          </div>
+
+          <div>
+            <label className="block font-semibold mb-1">Account Number</label>
+            <input
+              type="text"
+              value={accountNumber}
+              onChange={(e) => setAccountNumber(e.target.value)}
+              placeholder="e.g. 8001234567"
+              className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl font-mono font-bold"
+            />
+          </div>
+
+          <div>
+            <label className="block font-semibold mb-1">Branch</label>
+            <input
+              type="text"
+              value={bankBranch}
+              onChange={(e) => setBankBranch(e.target.value)}
+              placeholder="e.g. Kandy Branch"
+              className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl"
+            />
+          </div>
+        </div>
+
+        {hasBankDetails && (
+          <div className="bg-[#E8F0E9] border border-[#C2D6C5] rounded-2xl p-3 text-[11px] text-[#006241] font-semibold flex items-start gap-2">
+            <span className="text-base leading-none">✓</span>
+            <span>Buyers will now see "Bank Transfer" as a payment option at checkout once you save.</span>
+          </div>
+        )}
       </div>
     </form>
   );
