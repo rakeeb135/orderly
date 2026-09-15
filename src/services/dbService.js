@@ -452,10 +452,12 @@ export async function createOrder({
       subtotal,
       delivery_fee: Number(deliveryFee),
       total_amount: totalAmount,
-      advance_paid: paymentMethod === 'Bank' ? totalAmount : 0,
+      advance_paid: (paymentMethod === 'Bank' && source !== 'storefront') ? totalAmount : 0,
       cod_balance: paymentMethod === 'COD' ? totalAmount : 0,
       payment_method: paymentMethod,
-      payment_status: paymentMethod === 'Bank' ? 'Paid' : 'Unpaid',
+      payment_status: (paymentMethod === 'Bank' && source === 'storefront')
+      ? 'Awaiting Payment'
+      : (paymentMethod === 'Bank' ? 'Paid' : 'Unpaid'),
       status: 'received',
       source
     }])
@@ -787,4 +789,32 @@ export async function triggerPushNotification(sellerId, { title, message, link, 
     console.warn('[Push] Trigger failed:', err.message || err);
     return null;
   }
+}
+
+// ----------------------------------------------------
+// BANK PAYMENT CONFIRMATION
+// ----------------------------------------------------
+
+export async function markOrderPaymentReceived(orderId) {
+  const { data: order, error: fetchErr } = await supabase
+    .from('orders')
+    .select('total_amount')
+    .eq('id', orderId)
+    .single();
+
+  if (fetchErr) throw fetchErr;
+
+  const { data, error } = await supabase
+    .from('orders')
+    .update({
+      payment_status: 'Paid',
+      advance_paid: Number(order.total_amount) || 0,
+      cod_balance: 0,
+    })
+    .eq('id', orderId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
 }

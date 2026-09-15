@@ -12,6 +12,9 @@ import {
   AlertCircle,
   Plus,
   Minus,
+  Landmark,
+  Copy,
+  CheckCircle2,
 } from 'lucide-react';
 import {
   fetchSellerByHandle,
@@ -34,14 +37,19 @@ const SL_DISTRICTS = [
   'Ratnapura', 'Kegalle'
 ];
 
-const BUYER_STORAGE_KEY = 'orderly_buyer_profile';
+const BUYER_STORAGE_KEY = 'ordy_buyer_profile';
+const CART_STORAGE_PREFIX = 'ordy_storefront_cart_';
 
 export default function Storefront() {
   const { handle } = useParams();
   const [seller, setSeller] = useState(null);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Cart with persistence
   const [cart, setCart] = useState([]);
+  const [hydratedHandle, setHydratedHandle] = useState(null);
+
   const [showCheckout, setShowCheckout] = useState(false);
   const [selectedProductView, setSelectedProductView] = useState(null);
   const [activePhotoIdx, setActivePhotoIdx] = useState(0);
@@ -57,9 +65,17 @@ export default function Storefront() {
   const [address, setAddress] = useState('');
   const [district, setDistrict] = useState('');
   const [city, setCity] = useState('');
-  const [placing, setPlacing] = useState(false);
-  const [placedOrderId, setPlacedOrderId] = useState(null);
 
+  const [paymentMethod, setPaymentMethod] = useState('COD');
+  const [placing, setPlacing] = useState(false);
+  const [placedOrder, setPlacedOrder] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  const cartStorageKey = `${CART_STORAGE_PREFIX}${handle}`;
+
+  /* ---------------------------------------------------------------- */
+  /*  Load seller + products                                            */
+  /* ---------------------------------------------------------------- */
   useEffect(() => {
     async function load() {
       try {
@@ -79,6 +95,9 @@ export default function Storefront() {
     load();
   }, [handle]);
 
+  /* ---------------------------------------------------------------- */
+  /*  Load buyer profile from localStorage                              */
+  /* ---------------------------------------------------------------- */
   useEffect(() => {
     try {
       const saved = localStorage.getItem(BUYER_STORAGE_KEY);
@@ -96,6 +115,60 @@ export default function Storefront() {
     }
   }, []);
 
+  /* ---------------------------------------------------------------- */
+  /*  Load cart from localStorage for this specific shop                */
+  /* ---------------------------------------------------------------- */
+  useEffect(() => {
+    if (!handle) return;
+    try {
+      const saved = localStorage.getItem(CART_STORAGE_PREFIX + handle);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setCart(parsed);
+        } else {
+          setCart([]);
+        }
+      } else {
+        setCart([]);
+      }
+    } catch {
+      setCart([]);
+    }
+    setHydratedHandle(handle);
+  }, [handle]);
+
+  /* ---------------------------------------------------------------- */
+  /*  Persist cart whenever it changes (after hydration)                */
+  /* ---------------------------------------------------------------- */
+  useEffect(() => {
+    if (hydratedHandle !== handle) return;
+    try {
+      localStorage.setItem(CART_STORAGE_PREFIX + handle, JSON.stringify(cart));
+    } catch {
+      /* non-blocking */
+    }
+  }, [cart, handle, hydratedHandle]);
+
+  /* ---------------------------------------------------------------- */
+  /*  Bank details availability                                         */
+  /* ---------------------------------------------------------------- */
+  const hasBankDetails = Boolean(
+    seller?.bank_details?.bank_name?.trim() &&
+    seller?.bank_details?.account_name?.trim() &&
+    seller?.bank_details?.account_number?.trim()
+  );
+
+  // Force paymentMethod back to COD if seller has no bank details
+  useEffect(() => {
+    if (!hasBankDetails && paymentMethod === 'Bank') {
+      setPaymentMethod('COD');
+    }
+  }, [hasBankDetails, paymentMethod]);
+
+  /* ---------------------------------------------------------------- */
+  /*  Product modal                                                     */
+  /* ---------------------------------------------------------------- */
   const openProductModal = (product) => {
     setSelectedProductView(product);
     setActivePhotoIdx(0);
@@ -164,6 +237,9 @@ export default function Storefront() {
     closeProductModal();
   };
 
+  /* ---------------------------------------------------------------- */
+  /*  Totals + delivery fee                                             */
+  /* ---------------------------------------------------------------- */
   const totalItems = cart.reduce((sum, i) => sum + i.quantity, 0);
   const subtotal = cart.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
 
@@ -190,16 +266,25 @@ export default function Storefront() {
 
   const grandTotal = subtotal + calculatedDeliveryFee;
 
+  /* ---------------------------------------------------------------- */
+  /*  Checkout open/close                                               */
+  /* ---------------------------------------------------------------- */
   const openCheckout = () => {
-    setPlacedOrderId(null);
+    setPlacedOrder(null);
+    setCopied(false);
+    if (!hasBankDetails) setPaymentMethod('COD');
     setShowCheckout(true);
   };
 
   const closeCheckout = () => {
     setShowCheckout(false);
-    setPlacedOrderId(null);
+    setPlacedOrder(null);
+    setCopied(false);
   };
 
+  /* ---------------------------------------------------------------- */
+  /*  Place order                                                       */
+  /* ---------------------------------------------------------------- */
   const handleCheckoutSubmit = async (e) => {
     e.preventDefault();
     if (!phone.trim()) return;
@@ -226,11 +311,11 @@ export default function Storefront() {
         district: district.trim(),
         items: cart,
         deliveryFee: calculatedDeliveryFee,
-        paymentMethod: 'COD',
+        paymentMethod,
         source: 'storefront',
       });
 
-      // Persist buyer profile for 1-tap checkout next time
+      // Persist buyer profile for future 1-tap checkout
       try {
         localStorage.setItem(
           BUYER_STORAGE_KEY,
@@ -247,14 +332,24 @@ export default function Storefront() {
         /* non-blocking */
       }
 
-      setPlacedOrderId(order.id);
+      setPlacedOrder(order);
       setCart([]);
 
-      // Fire-and-forget push notification to the seller.
-      // Non-blocking: if this fails, the order still succeeds.
+      // Clear cart from localStorage for this shop
+      try {
+        localStorage.removeItem(CART_STORAGE_PREFIX + handle);
+      } catch {
+        /* non-blocking */
+      }
+
+      // Notify the seller in realtime
+      const pushMessage = order.payment_method === 'Bank'
+        ? `${cleanName || 'A customer'} placed a Bank Transfer order for ${formatLKR(order.total_amount)} — awaiting payment`
+        : `${cleanName || 'A customer'} placed a COD order for ${formatLKR(order.total_amount)}`;
+
       triggerPushNotification(seller.id, {
         title: `New Order #${order.order_code || order.id.slice(0, 4)}`,
-        message: `${cleanName || 'A customer'} placed an order for ${formatLKR(order.total_amount)} (${order.payment_method || 'COD'})`,
+        message: pushMessage,
         link: `/orders/${order.id}`,
         orderId: order.id,
       }).catch(() => {});
@@ -265,6 +360,33 @@ export default function Storefront() {
     }
   };
 
+  /* ---------------------------------------------------------------- */
+  /*  Copy bank details to clipboard                                    */
+  /* ---------------------------------------------------------------- */
+  const handleCopyBankDetails = async () => {
+    if (!placedOrder || !seller?.bank_details) return;
+    const bank = seller.bank_details;
+    const reference = placedOrder.order_code || placedOrder.id.slice(0, 4);
+    const text = `Bank: ${bank.bank_name}
+Account Name: ${bank.account_name}
+Account Number: ${bank.account_number}
+Branch: ${bank.branch || '—'}
+Reference: #${reference}
+Amount: ${formatLKR(placedOrder.total_amount)}`;
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2200);
+    } catch {
+      // Fallback for very old browsers
+      window.prompt('Copy bank details manually:', text);
+    }
+  };
+
+  /* ---------------------------------------------------------------- */
+  /*  Loading / inactive guards                                         */
+  /* ---------------------------------------------------------------- */
   if (loading) {
     return (
       <div className="min-h-screen bg-[#F4F6F4] flex items-center justify-center">
@@ -285,6 +407,15 @@ export default function Storefront() {
   const modalVariants = selectedProductView?.variants || [];
   const modalSizes = Array.from(new Set(modalVariants.map((v) => v.size).filter(Boolean)));
   const modalColors = Array.from(new Set(modalVariants.map((v) => v.color).filter(Boolean)));
+
+  // WhatsApp slip message for bank orders
+  const bankRef = placedOrder ? (placedOrder.order_code || placedOrder.id.slice(0, 4)) : '';
+  const slipMessage = placedOrder
+    ? `Hi ${seller.shop_name}! I've completed the bank transfer for order #${bankRef}.\n\nAmount: ${formatLKR(placedOrder.total_amount)}\n\nHere's my transfer slip:`
+    : '';
+  const slipWhatsAppLink = cleanWaNumber
+    ? `https://wa.me/${cleanWaNumber}?text=${encodeURIComponent(slipMessage)}`
+    : '#';
 
   return (
     <div className="min-h-screen bg-[#F4F6F4] text-[#111813] font-sans pb-24">
@@ -307,6 +438,7 @@ export default function Storefront() {
       </header>
 
       <main className="max-w-lg mx-auto px-4 space-y-4 pt-2">
+        {/* Brand banner */}
         <div className="bg-white border border-[#E7EBE7] rounded-[32px] overflow-hidden shadow-xs">
           {seller.banner_url ? (
             <div className="w-full h-36 sm:h-44 bg-stone-100 overflow-hidden">
@@ -375,9 +507,16 @@ export default function Storefront() {
             </div>
 
             <div className="flex justify-center gap-4 text-[11px] font-bold text-[#5A655D] pt-3 border-t border-[#E7EBE7]">
-              <span className="flex items-center gap-1">
-                <ShieldCheck className="w-3.5 h-3.5 text-[#006241]" /> Cash on Delivery
-              </span>
+              {seller.cod_enabled !== false && (
+                <span className="flex items-center gap-1">
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#006241]" /> Cash on Delivery
+                </span>
+              )}
+              {hasBankDetails && (
+                <span className="flex items-center gap-1">
+                  <Landmark className="w-3.5 h-3.5 text-[#006241]" /> Bank Transfer
+                </span>
+              )}
               <span className="flex items-center gap-1">
                 <Truck className="w-3.5 h-3.5 text-[#006241]" /> Islandwide Delivery
               </span>
@@ -385,6 +524,7 @@ export default function Storefront() {
           </div>
         </div>
 
+        {/* Product catalog */}
         <div className="grid grid-cols-2 gap-3">
           {products.length === 0 ? (
             <div className="col-span-2 bg-white border border-[#E7EBE7] rounded-[24px] p-8 text-center text-xs text-[#5A655D]">
@@ -443,6 +583,7 @@ export default function Storefront() {
         </div>
       </main>
 
+      {/* Product detail modal */}
       {selectedProductView && (
         <div className="fixed inset-0 bg-[#111813]/70 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
           <div className="bg-white w-full sm:max-w-md rounded-t-[32px] sm:rounded-[32px] p-6 shadow-2xl space-y-4 max-h-[92dvh] overflow-y-auto text-[#111813]">
@@ -594,6 +735,7 @@ export default function Storefront() {
         </div>
       )}
 
+      {/* Floating bottom cart */}
       {totalItems > 0 && !showCheckout && (
         <div className="fixed bottom-4 left-4 right-4 max-w-lg mx-auto bg-[#111813] text-white p-3.5 rounded-[28px] shadow-2xl flex justify-between items-center z-40">
           <span className="text-xs font-black pl-2">{totalItems} item(s) • {formatLKR(subtotal)}</span>
@@ -606,38 +748,162 @@ export default function Storefront() {
         </div>
       )}
 
+      {/* Checkout drawer */}
       {showCheckout && (
         <div className="fixed inset-0 bg-[#111813]/70 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
           <div className="bg-white w-full sm:max-w-md rounded-t-[32px] sm:rounded-[32px] p-6 shadow-2xl space-y-4 max-h-[92dvh] overflow-y-auto text-[#111813]">
             <div className="flex justify-between items-center border-b border-[#E7EBE7] pb-3">
-              <h3 className="font-black text-sm">Delivery & Checkout</h3>
+              <h3 className="font-black text-sm">
+                {placedOrder ? 'Order Confirmed' : 'Delivery & Checkout'}
+              </h3>
               <button onClick={closeCheckout} className="text-stone-400 hover:text-black">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {placedOrderId ? (
-              <div className="py-6 text-center space-y-3">
-                <h4 className="font-black text-base">Order Placed Successfully!</h4>
-                <p className="text-xs text-[#5A655D]">We have recorded your order. Track your delivery live below:</p>
-                <Link
-                  to={`/order/${placedOrderId}`}
-                  className="inline-block px-6 py-3 bg-[#006241] text-white rounded-2xl text-xs font-bold active:scale-95 transition shadow-xs"
-                >
-                  Track Order Status
-                </Link>
-                <div>
+            {placedOrder ? (
+              placedOrder.payment_method === 'Bank' && hasBankDetails ? (
+                /* ============================================================ */
+                /*  BANK SUCCESS SCREEN                                          */
+                /* ============================================================ */
+                <div className="space-y-4">
+                  <div className="text-center space-y-2">
+                    <div className="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center mx-auto">
+                      <Landmark className="w-7 h-7 text-amber-700" />
+                    </div>
+                    <h4 className="font-black text-base">
+                      Order #{placedOrder.order_code || placedOrder.id.slice(0, 4)}
+                    </h4>
+                    <p className="text-xs text-[#5A655D]">
+                      Almost done — complete your bank transfer to confirm this order.
+                    </p>
+                  </div>
+
+                  {/* Bank details card */}
+                  <div className="bg-[#F4F6F4] border border-[#E7EBE7] rounded-2xl p-4 space-y-2.5 text-xs">
+                    <div className="flex justify-between items-baseline border-b border-[#E7EBE7] pb-2">
+                      <span className="text-[#5A655D] font-semibold">Amount to Transfer</span>
+                      <span className="font-black text-base text-[#006241]">
+                        {formatLKR(placedOrder.total_amount)}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5 font-mono">
+                      <div className="flex justify-between gap-3">
+                        <span className="text-[#5A655D] shrink-0">Bank</span>
+                        <span className="font-bold text-right">{seller.bank_details.bank_name}</span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-[#5A655D] shrink-0">Name</span>
+                        <span className="font-bold text-right">{seller.bank_details.account_name}</span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-[#5A655D] shrink-0">Account</span>
+                        <span className="font-bold text-right">{seller.bank_details.account_number}</span>
+                      </div>
+                      {seller.bank_details.branch && (
+                        <div className="flex justify-between gap-3">
+                          <span className="text-[#5A655D] shrink-0">Branch</span>
+                          <span className="font-bold text-right">{seller.bank_details.branch}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between gap-3 pt-2 border-t border-[#E7EBE7]">
+                        <span className="text-[#5A655D] shrink-0">Reference</span>
+                        <span className="font-black text-[#006241] text-right">
+                          #{placedOrder.order_code || placedOrder.id.slice(0, 4)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 text-[11px] text-amber-800 leading-relaxed">
+                    <strong>Next step:</strong> Transfer the amount, then send your payment slip on WhatsApp so the seller can confirm your order.
+                  </div>
+
+                  {/* Send slip on WhatsApp — primary action */}
+                  {seller.whatsapp_number ? (
+                    <a
+                      href={slipWhatsAppLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full py-3.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white font-bold rounded-2xl text-xs flex items-center justify-center gap-2 active:scale-95 transition shadow-xs"
+                    >
+                      <MessageCircle className="w-4 h-4" /> Send Payment Slip on WhatsApp
+                    </a>
+                  ) : (
+                    <div className="bg-rose-50 border border-rose-200 text-rose-800 text-[11px] p-3 rounded-2xl">
+                      Seller has no WhatsApp on file — please contact them directly to send your slip.
+                    </div>
+                  )}
+
+                  {/* Copy bank details */}
                   <button
                     type="button"
-                    onClick={closeCheckout}
-                    className="text-[11px] text-[#5A655D] hover:text-black font-semibold mt-2"
+                    onClick={handleCopyBankDetails}
+                    className="w-full py-2.5 bg-[#F4F6F4] hover:bg-stone-200 border border-[#E7EBE7] text-[#111813] font-bold rounded-2xl text-xs flex items-center justify-center gap-2 active:scale-95 transition"
                   >
-                    Continue shopping
+                    {copied ? (
+                      <><CheckCircle2 className="w-4 h-4 text-[#006241]" /> Copied!</>
+                    ) : (
+                      <><Copy className="w-4 h-4" /> Copy Bank Details</>
+                    )}
                   </button>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-[#E7EBE7] gap-2">
+                    <Link
+                      to={`/order/${placedOrder.id}`}
+                      className="flex-1 text-center py-2.5 bg-[#006241] text-white rounded-2xl text-xs font-bold active:scale-95 transition"
+                    >
+                      Track Order
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={closeCheckout}
+                      className="flex-1 text-center py-2.5 bg-white border border-[#E7EBE7] text-[#5A655D] hover:text-black rounded-2xl text-xs font-bold active:scale-95 transition"
+                    >
+                      Continue Shopping
+                    </button>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                /* ============================================================ */
+                /*  COD SUCCESS SCREEN                                           */
+                /* ============================================================ */
+                <div className="py-6 text-center space-y-4">
+                  <div className="w-16 h-16 bg-[#E8F0E9] rounded-full flex items-center justify-center mx-auto">
+                    <CheckCircle2 className="w-8 h-8 text-[#006241]" />
+                  </div>
+                  <div>
+                    <h4 className="font-black text-base">
+                      Order #{placedOrder.order_code || placedOrder.id.slice(0, 4)} Placed!
+                    </h4>
+                    <p className="text-xs text-[#5A655D] mt-1">
+                      Pay <strong className="text-[#006241]">{formatLKR(placedOrder.total_amount)}</strong> in cash when your order arrives.
+                    </p>
+                  </div>
+                  <div className="space-y-2 pt-2">
+                    <Link
+                      to={`/order/${placedOrder.id}`}
+                      className="block w-full py-3 bg-[#006241] text-white rounded-2xl text-xs font-bold active:scale-95 transition shadow-xs"
+                    >
+                      Track Order Status
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={closeCheckout}
+                      className="w-full py-2.5 text-[#5A655D] hover:text-black text-xs font-semibold"
+                    >
+                      Continue shopping
+                    </button>
+                  </div>
+                </div>
+              )
             ) : (
+              /* ============================================================== */
+              /*  CHECKOUT FORM                                                  */
+              /* ============================================================== */
               <form onSubmit={handleCheckoutSubmit} className="space-y-3 text-xs">
+                {/* Cart summary */}
                 <div className="bg-[#F4F6F4] p-3 rounded-2xl border border-[#E7EBE7] space-y-1.5">
                   {cart.map((i) => (
                     <div key={i.itemKey || i.id} className="flex justify-between items-center">
@@ -660,7 +926,7 @@ export default function Storefront() {
                   </div>
 
                   <div className="flex justify-between font-black text-sm pt-1 border-t border-[#E7EBE7] text-[#006241]">
-                    <span>Total (COD)</span>
+                    <span>Total</span>
                     <span>{formatLKR(grandTotal)}</span>
                   </div>
                 </div>
@@ -694,7 +960,7 @@ export default function Storefront() {
                 <div>
                   <div className="flex justify-between items-center mb-1">
                     <label className="font-semibold">Secondary Phone <span className="text-stone-400 font-normal">(Optional)</span></label>
-                    <span className="text-[10px] text-[#5A655D]">For Courier Delivery</span>
+                    <span className="text-[10px] text-[#5A655D]">For courier delivery</span>
                   </div>
                   <input
                     type="tel"
@@ -748,12 +1014,53 @@ export default function Storefront() {
                   />
                 </div>
 
+                {/* Payment method */}
+                {hasBankDetails && (
+                  <div className="border border-[#E7EBE7] rounded-2xl p-3 space-y-2 bg-stone-50/50">
+                    <div className="font-bold text-xs">Payment Method</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPaymentMethod('COD')}
+                        className={`py-3 rounded-xl text-xs font-bold border transition active:scale-95 flex flex-col items-center gap-1 ${
+                          paymentMethod === 'COD'
+                            ? 'bg-[#006241] text-white border-[#006241]'
+                            : 'bg-white text-[#111813] border-[#E7EBE7] hover:border-stone-400'
+                        }`}
+                      >
+                        <ShieldCheck className="w-4 h-4" />
+                        <span>Cash on Delivery</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPaymentMethod('Bank')}
+                        className={`py-3 rounded-xl text-xs font-bold border transition active:scale-95 flex flex-col items-center gap-1 ${
+                          paymentMethod === 'Bank'
+                            ? 'bg-[#006241] text-white border-[#006241]'
+                            : 'bg-white text-[#111813] border-[#E7EBE7] hover:border-stone-400'
+                        }`}
+                      >
+                        <Landmark className="w-4 h-4" />
+                        <span>Bank Transfer</span>
+                      </button>
+                    </div>
+
+                    <p className="text-[10px] text-[#5A655D] leading-relaxed">
+                      {paymentMethod === 'COD'
+                        ? 'Pay cash to the delivery rider when your order arrives.'
+                        : 'You\'ll receive the seller\'s bank details on the next screen. Transfer the amount, then send the slip on WhatsApp.'}
+                    </p>
+                  </div>
+                )}
+
                 <button
                   type="submit"
                   disabled={placing || cart.length === 0}
                   className="w-full py-3.5 bg-[#006241] hover:bg-[#004F34] text-white font-bold rounded-2xl active:scale-95 transition shadow-xs disabled:opacity-50 mt-2"
                 >
-                  {placing ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : `Confirm Order • ${formatLKR(grandTotal)}`}
+                  {placing
+                    ? <Loader2 className="w-4 h-4 animate-spin mx-auto" />
+                    : (paymentMethod === 'Bank' ? `Place Order • ${formatLKR(grandTotal)}` : `Confirm Order • ${formatLKR(grandTotal)}`)}
                 </button>
               </form>
             )}
