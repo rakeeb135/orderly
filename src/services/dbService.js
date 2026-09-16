@@ -818,3 +818,120 @@ export async function markOrderPaymentReceived(orderId) {
   if (error) throw error;
   return data;
 }
+
+// ----------------------------------------------------
+// BUYER SELF-SERVICE (address edit + cancel)
+// ----------------------------------------------------
+
+export async function updateBuyerOrderAddress(orderId, {
+  customerName,
+  customerPhone,
+  secondaryPhone = '',
+  deliveryAddress,
+  city,
+  district,
+}) {
+  const cleanPhone = normalizeSLPhone(customerPhone);
+  const cleanSecondary = secondaryPhone ? normalizeSLPhone(secondaryPhone) : '';
+
+  if (!isValidSLPhone(cleanPhone)) {
+    throw new Error('Please enter a valid 10-digit Sri Lankan phone number (07XXXXXXXX).');
+  }
+
+  const { data: existing, error: fetchErr } = await supabase
+    .from('orders')
+    .select('status, order_code, seller_id, customer_name')
+    .eq('id', orderId)
+    .single();
+
+  if (fetchErr) throw fetchErr;
+  if (!existing) throw new Error('Order not found.');
+  if (existing.status !== 'received') {
+    throw new Error('This order has already been processed. Contact the seller to make changes.');
+  }
+
+  const { data, error } = await supabase
+    .from('orders')
+    .update({
+      customer_name: customerName.trim(),
+      customer_phone: cleanPhone,
+      secondary_phone: cleanSecondary,
+      delivery_address: deliveryAddress.trim(),
+      city: city.trim(),
+      district: district ? district.trim() : '',
+    })
+    .eq('id', orderId)
+    .select('*, sellers(*), customers(*)')
+    .single();
+
+  if (error) throw error;
+
+  if (data?.seller_id) {
+    await createNotification(data.seller_id, {
+      title: `Order Details Updated #${data.order_code || data.id.slice(0, 4)}`,
+      message: `${data.customer_name} updated their delivery details. Double-check before packing.`,
+      type: 'order',
+      link: `/orders/${data.id}`,
+    });
+  }
+
+  return data;
+}
+
+export async function cancelOrderAsBuyer(orderId) {
+  const { data: order, error: fetchErr } = await supabase
+    .from('orders')
+    .select('*')
+    .eq('id', orderId)
+    .single();
+
+  if (fetchErr) throw fetchErr;
+  if (!order) throw new Error('Order not found.');
+  if (order.status === 'canceled') throw new Error('This order is already canceled.');
+  if (order.status !== 'received') {
+    throw new Error('This order has already been packed or dispatched. Contact the seller directly.');
+  }
+
+  // Restock inventory
+  const items = Array.isArray(order.items) ? order.items : [];
+  for (const item of items) {
+    if (item.id) {
+      const { data: liveProduct } = await supabase
+        .from('products')
+        .select('stock_count')
+        .eq('id', item.id)
+        .single();
+
+      if (liveProduct) {
+        const newStock = (Number(liveProduct.stock_count) || 0) + (Number(item.quantity) || 1);
+        await supabase
+          .from('products')
+          .update({ stock_count: newStock })
+          .eq('id', item.id);
+      }
+    }
+  }
+
+  const { data, error } = await supabase
+    .from('orders')
+    .update({ status: 'canceled' })
+    .eq('id', orderId)
+    .select('*, sellers(*), customers(*)')
+    .single();
+
+  if (error) throw error;
+
+  if (data?.seller_id) {
+    const refundNote = (data.payment_method === 'Bank' && data.payment_status === 'Paid')
+      ? ' Payment was already received — a refund may be needed.'
+      : '';
+    await createNotification(data.seller_id, {
+      title: `Order Canceled by Buyer #${data.order_code || data.id.slice(0, 4)}`,
+      message: `${data.customer_name} canceled their order. Stock returned to inventory.${refundNote}`,
+      type: 'order',
+      link: `/orders/${data.id}`,
+    });
+  }
+
+  return data;
+}
