@@ -19,9 +19,16 @@ import {
   ArrowRight,
   Trash2,
   RotateCcw,
-  Landmark
+  Landmark,
+  PackageCheck,
 } from 'lucide-react';
-import { fetchOrders, updateOrderStatus, deleteOrdersBatch, formatLKR } from '../services/dbService';
+import {
+  fetchOrders,
+  updateOrderStatus,
+  bulkUpdateOrderStatus,
+  deleteOrdersBatch,
+  formatLKR,
+} from '../services/dbService';
 import { supabase } from '../supabase';
 import PrintManifestModal from '../components/PrintManifestModal';
 import { notify } from '../components/Toast';
@@ -54,6 +61,17 @@ const SRI_LANKAN_COURIERS = [
   'Other / In-House Rider'
 ];
 
+// Eligibility check for bulk pack
+function isEligibleForPack(ord) {
+  if (ord.status !== 'received') return false;
+  const isCOD = !ord.payment_method || ord.payment_method === 'COD';
+  const isBank = ord.payment_method === 'Bank';
+  const isPaid = ord.payment_status === 'Paid';
+  if (isCOD) return Boolean(ord.buyer_confirmed);
+  if (isBank) return isPaid;
+  return false;
+}
+
 export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
   const navigate = useNavigate();
 
@@ -70,6 +88,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [bulkPacking, setBulkPacking] = useState(false);
 
   const [dispatchOrderTarget, setDispatchOrderTarget] = useState(null);
   const [selectedCourier, setSelectedCourier] = useState(SRI_LANKAN_COURIERS[0]);
@@ -123,9 +142,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
               return [newRow, ...prev];
             });
             if (newRow.source !== 'manual_pos') {
-              notify(
-                `New order #${newRow.order_code || newRow.id.slice(0, 4)} received!`
-              );
+              notify(`New order #${newRow.order_code || newRow.id.slice(0, 4)} received!`);
             }
           } else if (eventType === 'UPDATE' && newRow?.id) {
             setOrders((prev) =>
@@ -191,6 +208,16 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
       });
   }, [orders, activeTab, searchQuery]);
 
+  /* ---------------------------------------------------------------- */
+  /*  Bulk pack eligibility count                                      */
+  /* ---------------------------------------------------------------- */
+  const packableCount = useMemo(() => {
+    if (!selectedOrderIds.length) return 0;
+    return orders.filter(
+      (o) => selectedOrderIds.includes(o.id) && isEligibleForPack(o)
+    ).length;
+  }, [orders, selectedOrderIds]);
+
   const handleNewOrderClick = () => {
     if (typeof onOpenPOS === 'function') {
       onOpenPOS();
@@ -211,6 +238,38 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
       notify('Failed to update: ' + err.message, 'error');
     } finally {
       setActionLoadingId(null);
+    }
+  };
+
+  const handleBulkPack = async () => {
+    if (!packableCount) {
+      notify('No eligible orders in selection — verify buyer or confirm payment first.', 'error');
+      return;
+    }
+
+    setBulkPacking(true);
+    try {
+      const { updatedOrders, skipped } = await bulkUpdateOrderStatus(selectedOrderIds, 'packed');
+
+      setOrders((prev) =>
+        prev.map((o) => {
+          const upd = updatedOrders.find((u) => u.id === o.id);
+          return upd ? { ...o, ...upd } : o;
+        })
+      );
+
+      const updatedCount = updatedOrders.length;
+      if (skipped > 0) {
+        notify(`${updatedCount} packed, ${skipped} skipped (not verified/paid).`);
+      } else {
+        notify(`${updatedCount} order${updatedCount === 1 ? '' : 's'} packed!`);
+      }
+
+      cancelSelectionMode();
+    } catch (err) {
+      notify('Bulk pack failed: ' + err.message, 'error');
+    } finally {
+      setBulkPacking(false);
     }
   };
 
@@ -404,10 +463,10 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
             const isCanceled = ord.status === 'canceled';
             const isBusy = actionLoadingId === ord.id;
 
-            // Payment classification
             const isCOD = !ord.payment_method || ord.payment_method === 'COD';
             const isBank = ord.payment_method === 'Bank';
             const isAwaitingPayment = isBank && ord.payment_status === 'Awaiting Payment';
+            const packable = isEligibleForPack(ord);
 
             const trackingUrl = `${window.location.origin}/order/${ord.id}`;
             const verifyMsg = `Hi ${ord.customer_name}! Please tap to confirm your order #${ord.order_code || ord.id.slice(0, 4)} from ${seller?.shop_name}: ${trackingUrl}`;
@@ -453,14 +512,12 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                         #{ord.order_code || ord.id.slice(0, 4)}
                       </span>
 
-                      {/* Awaiting Payment — highest priority badge */}
                       {isAwaitingPayment && (
                         <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-1">
                           <Landmark className="w-2.5 h-2.5" /> Awaiting Payment
                         </span>
                       )}
 
-                      {/* COD verification states */}
                       {isCOD && ord.status === 'received' && !ord.buyer_confirmed && !isAwaitingPayment && (
                         <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200/60 flex items-center gap-1">
                           <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" /> Pending Verification
@@ -472,7 +529,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                         </span>
                       )}
 
-                      {/* Status badges (skip when awaiting payment) */}
                       {!isAwaitingPayment && ord.status === 'packed' && (
                         <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200/60">
                           Packed
@@ -528,7 +584,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                   </div>
 
                   <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                    {/* WhatsApp verify (COD only) */}
                     {isCOD && !ord.buyer_confirmed && ord.status === 'received' && !isSelectionMode && (
                       <a
                         href={`https://wa.me/${cleanPhone}?text=${encodeURIComponent(verifyMsg)}`}
@@ -542,8 +597,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                       </a>
                     )}
 
-                    {/* Pack button — only if not awaiting payment */}
-                    {ord.status === 'received' && !isAwaitingPayment && (ord.buyer_confirmed || isBank) && !isSelectionMode && (
+                    {ord.status === 'received' && packable && !isSelectionMode && (
                       <button
                         type="button"
                         disabled={isBusy}
@@ -554,7 +608,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                       </button>
                     )}
 
-                    {/* Dispatch button */}
                     {ord.status === 'packed' && !isSelectionMode && (
                       <button
                         type="button"
@@ -633,31 +686,50 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
 
       {/* Floating batch bar */}
       {selectedOrderIds.length > 0 && (
-        <div className="fixed bottom-20 sm:bottom-6 left-4 right-4 max-w-lg mx-auto bg-[#18181B] text-white p-3.5 rounded-[24px] shadow-2xl flex items-center justify-between z-40 border border-stone-800">
-          <div className="pl-2">
+        <div className="fixed bottom-20 sm:bottom-6 left-4 right-4 max-w-lg mx-auto bg-[#18181B] text-white p-3 rounded-[24px] shadow-2xl flex items-center justify-between z-40 border border-stone-800 gap-2">
+          <div className="pl-2 shrink-0">
             <span className="text-xs font-black">{selectedOrderIds.length} selected</span>
-            <span className="text-[10px] text-stone-400 block">Batch actions</span>
+            <span className="text-[10px] text-stone-400 block">
+              {packableCount > 0 ? `${packableCount} ready to pack` : 'Batch actions'}
+            </span>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             <button
               type="button"
               onClick={() => setShowPrintModal(true)}
-              className="px-4 py-2 bg-white text-[#18181B] hover:bg-stone-100 rounded-xl text-xs font-bold flex items-center gap-1.5 active:scale-95 transition shadow-2xs"
+              className="px-3 sm:px-4 py-2 bg-white text-[#18181B] hover:bg-stone-100 rounded-xl text-xs font-bold flex items-center gap-1.5 active:scale-95 transition shadow-2xs"
             >
               <Printer className="w-3.5 h-3.5" />
-              <span>Print AWB</span>
+              <span className="hidden sm:inline">Print AWB</span>
             </button>
 
-            <div className="h-5 w-[1px] bg-stone-700" />
+            {packableCount > 0 && (
+              <button
+                type="button"
+                onClick={handleBulkPack}
+                disabled={bulkPacking}
+                className="px-3 sm:px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 active:scale-95 transition shadow-2xs disabled:opacity-50"
+                title="Mark all eligible orders as packed"
+              >
+                {bulkPacking ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <>
+                    <PackageCheck className="w-3.5 h-3.5" />
+                    <span>Pack ({packableCount})</span>
+                  </>
+                )}
+              </button>
+            )}
 
             <button
               type="button"
               onClick={handleBatchDelete}
               disabled={deleting}
-              className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 active:scale-95 transition shadow-2xs disabled:opacity-50"
+              className="px-3 sm:px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 active:scale-95 transition shadow-2xs disabled:opacity-50"
             >
-              {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Trash2 className="w-3.5 h-3.5" /> Delete</>}
+              {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Trash2 className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Delete</span></>}
             </button>
 
             <button

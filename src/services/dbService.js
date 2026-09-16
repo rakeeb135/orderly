@@ -935,3 +935,57 @@ export async function cancelOrderAsBuyer(orderId) {
 
   return data;
 }
+
+// ----------------------------------------------------
+// BULK ORDER STATUS (batch pack)
+// ----------------------------------------------------
+
+export async function bulkUpdateOrderStatus(orderIds, nextStatus) {
+  if (!orderIds || !orderIds.length) {
+    return { updatedOrders: [], skipped: 0 };
+  }
+
+  // Safety: only allow bulk 'packed' transitions
+  if (nextStatus !== 'packed') {
+    throw new Error('Bulk status changes are currently only supported for "packed".');
+  }
+
+  const { data: orders, error: fetchErr } = await supabase
+    .from('orders')
+    .select('id, status, buyer_confirmed, payment_method, payment_status')
+    .in('id', orderIds);
+
+  if (fetchErr) throw fetchErr;
+
+  // Determine eligibility per order
+  const eligible = (orders || []).filter((o) => {
+    if (o.status !== 'received') return false;
+
+    const isCOD = !o.payment_method || o.payment_method === 'COD';
+    const isBank = o.payment_method === 'Bank';
+    const isPaid = o.payment_status === 'Paid';
+
+    if (isCOD) return Boolean(o.buyer_confirmed);
+    if (isBank) return isPaid;
+    return false;
+  });
+
+  if (!eligible.length) {
+    return { updatedOrders: [], skipped: (orders || []).length };
+  }
+
+  const eligibleIds = eligible.map((o) => o.id);
+
+  const { data, error } = await supabase
+    .from('orders')
+    .update({ status: nextStatus })
+    .in('id', eligibleIds)
+    .select();
+
+  if (error) throw error;
+
+  return {
+    updatedOrders: data || [],
+    skipped: (orders || []).length - (data?.length || 0),
+  };
+}
