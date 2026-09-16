@@ -18,7 +18,8 @@ import {
   ChevronRight,
   ArrowRight,
   Trash2,
-  RotateCcw
+  RotateCcw,
+  Landmark
 } from 'lucide-react';
 import { fetchOrders, updateOrderStatus, deleteOrdersBatch, formatLKR } from '../services/dbService';
 import { supabase } from '../supabase';
@@ -56,7 +57,6 @@ const SRI_LANKAN_COURIERS = [
 export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
   const navigate = useNavigate();
 
-  // Robust context fallback: pull onOpenPOS from router outlet context if not passed directly as a prop
   const outletContext = useOutletContext() || {};
   const onOpenPOS = propOnOpenPOS || outletContext.onOpenPOS;
 
@@ -93,13 +93,12 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
   }, [seller?.id]);
 
   /* ---------------------------------------------------------------- */
-  /*  Realtime subscription — new/updated/deleted orders appear live   */
+  /*  Realtime subscription                                            */
   /* ---------------------------------------------------------------- */
   useEffect(() => {
     if (!seller?.id) return;
     let isMounted = true;
 
-    // Unique channel name so React 19 StrictMode double-mount is safe
     const channelName = `orders-rt-${seller.id}-${Date.now()}-${Math.random()
       .toString(36)
       .slice(2, 8)}`;
@@ -123,7 +122,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
               if (prev.some((o) => o.id === newRow.id)) return prev;
               return [newRow, ...prev];
             });
-            // Don't toast for orders the seller themselves just created in POS
             if (newRow.source !== 'manual_pos') {
               notify(
                 `New order #${newRow.order_code || newRow.id.slice(0, 4)} received!`
@@ -278,7 +276,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
 
   return (
     <div className="space-y-4 pb-32 text-[#18181B] max-w-5xl mx-auto">
-      {/* 1. COMMAND HEADER WITH GUARDED POS TRIGGER */}
+      {/* Header */}
       <div className="bg-white border border-[#E4E4E7] rounded-[24px] p-4 sm:p-5 shadow-2xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <div>
           <div className="flex items-center gap-2">
@@ -313,7 +311,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
         </div>
       </div>
 
-      {/* 2. TAB NAVIGATION */}
+      {/* Tabs */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
         {PIPELINE_TABS.map((tab) => {
           const Icon = tab.icon;
@@ -345,7 +343,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
         })}
       </div>
 
-      {/* 3. PRINT / MANAGE BAR */}
+      {/* Controls bar */}
       <div className="flex justify-between items-center bg-white border border-[#E4E4E7] rounded-2xl px-4 py-2.5 shadow-2xs">
         <div className="text-xs text-[#71717A] font-medium">
           {filteredOrders.length} order{filteredOrders.length === 1 ? '' : 's'} in view
@@ -386,7 +384,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
         )}
       </div>
 
-      {/* 4. ORDERS LIST */}
+      {/* Orders list */}
       {loading ? (
         <div className="bg-white border border-[#E4E4E7] rounded-[24px] p-12 flex justify-center items-center">
           <Loader2 className="w-6 h-6 text-[#006241] animate-spin" />
@@ -406,6 +404,11 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
             const isCanceled = ord.status === 'canceled';
             const isBusy = actionLoadingId === ord.id;
 
+            // Payment classification
+            const isCOD = !ord.payment_method || ord.payment_method === 'COD';
+            const isBank = ord.payment_method === 'Bank';
+            const isAwaitingPayment = isBank && ord.payment_status === 'Awaiting Payment';
+
             const trackingUrl = `${window.location.origin}/order/${ord.id}`;
             const verifyMsg = `Hi ${ord.customer_name}! Please tap to confirm your order #${ord.order_code || ord.id.slice(0, 4)} from ${seller?.shop_name}: ${trackingUrl}`;
 
@@ -424,6 +427,8 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                     ? 'border-[#006241] bg-[#F0FDF4]/30 shadow-2xs'
                     : isCanceled
                     ? 'border-[#E4E4E7] bg-stone-50/50 opacity-60'
+                    : isAwaitingPayment
+                    ? 'border-amber-200 hover:border-amber-300 hover:shadow-2xs'
                     : 'border-[#E4E4E7] hover:border-stone-400 hover:shadow-2xs'
                 }`}
               >
@@ -448,27 +453,37 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                         #{ord.order_code || ord.id.slice(0, 4)}
                       </span>
 
-                      {ord.status === 'received' && !ord.buyer_confirmed && (
+                      {/* Awaiting Payment — highest priority badge */}
+                      {isAwaitingPayment && (
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-1">
+                          <Landmark className="w-2.5 h-2.5" /> Awaiting Payment
+                        </span>
+                      )}
+
+                      {/* COD verification states */}
+                      {isCOD && ord.status === 'received' && !ord.buyer_confirmed && !isAwaitingPayment && (
                         <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200/60 flex items-center gap-1">
                           <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" /> Pending Verification
                         </span>
                       )}
-                      {ord.status === 'received' && ord.buyer_confirmed && (
+                      {ord.status === 'received' && (ord.buyer_confirmed || (isBank && !isAwaitingPayment)) && (
                         <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-[#006241] border border-emerald-200/60 flex items-center gap-1">
                           <Check className="w-2.5 h-2.5" /> Ready to Pack
                         </span>
                       )}
-                      {ord.status === 'packed' && (
+
+                      {/* Status badges (skip when awaiting payment) */}
+                      {!isAwaitingPayment && ord.status === 'packed' && (
                         <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200/60">
                           Packed
                         </span>
                       )}
-                      {ord.status === 'dispatched' && (
+                      {!isAwaitingPayment && ord.status === 'dispatched' && (
                         <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 text-purple-800 border border-purple-200/60">
                           With Courier
                         </span>
                       )}
-                      {ord.status === 'delivered' && (
+                      {!isAwaitingPayment && ord.status === 'delivered' && (
                         <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-stone-100 text-stone-600">
                           Delivered
                         </span>
@@ -504,16 +519,17 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
 
                 <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-[#E4E4E7]">
                   <div className="text-left sm:text-right">
-                    <div className={`text-xs font-black ${isCanceled ? 'line-through text-stone-400' : 'text-[#18181B]'}`}>
+                    <div className={`text-xs font-black ${isCanceled ? 'line-through text-stone-400' : isAwaitingPayment ? 'text-amber-700' : 'text-[#18181B]'}`}>
                       {formatLKR(ord.total_amount)}
                     </div>
                     <div className="text-[10px] font-medium text-[#71717A] uppercase tracking-wider">
-                      {ord.payment_method === 'COD' ? 'Cash' : 'Bank'}
+                      {isCOD ? 'Cash' : 'Bank'}
                     </div>
                   </div>
 
                   <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                    {!ord.buyer_confirmed && ord.status === 'received' && !isSelectionMode && (
+                    {/* WhatsApp verify (COD only) */}
+                    {isCOD && !ord.buyer_confirmed && ord.status === 'received' && !isSelectionMode && (
                       <a
                         href={`https://wa.me/${cleanPhone}?text=${encodeURIComponent(verifyMsg)}`}
                         target="_blank"
@@ -526,7 +542,8 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                       </a>
                     )}
 
-                    {ord.status === 'received' && ord.buyer_confirmed && !isSelectionMode && (
+                    {/* Pack button — only if not awaiting payment */}
+                    {ord.status === 'received' && !isAwaitingPayment && (ord.buyer_confirmed || isBank) && !isSelectionMode && (
                       <button
                         type="button"
                         disabled={isBusy}
@@ -537,6 +554,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                       </button>
                     )}
 
+                    {/* Dispatch button */}
                     {ord.status === 'packed' && !isSelectionMode && (
                       <button
                         type="button"
@@ -561,7 +579,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
         </div>
       )}
 
-      {/* 5. QUICK DISPATCH MODAL */}
+      {/* Dispatch modal */}
       {dispatchOrderTarget && (
         <div className="fixed inset-0 bg-[#18181B]/70 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-[28px] p-6 max-w-sm w-full shadow-2xl space-y-4 text-xs text-[#18181B]">
@@ -613,7 +631,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
         </div>
       )}
 
-      {/* 6. FLOATING BATCH ACTION BAR */}
+      {/* Floating batch bar */}
       {selectedOrderIds.length > 0 && (
         <div className="fixed bottom-20 sm:bottom-6 left-4 right-4 max-w-lg mx-auto bg-[#18181B] text-white p-3.5 rounded-[24px] shadow-2xl flex items-center justify-between z-40 border border-stone-800">
           <div className="pl-2">
@@ -653,7 +671,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
         </div>
       )}
 
-      {/* 7. PRINT MANIFEST MODAL */}
+      {/* Print modal */}
       {showPrintModal && (
         <PrintManifestModal
           isOpen={showPrintModal}
