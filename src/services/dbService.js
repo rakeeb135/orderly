@@ -434,7 +434,18 @@ export async function createOrder({
 
   const subtotal = items.reduce((sum, item) => sum + (Number(item.price) * (Number(item.quantity) || 1)), 0);
   const totalAmount = subtotal + Number(deliveryFee);
-  const orderCode = Math.floor(1000 + Math.random() * 9000).toString();
+  // Atomically reserve the next sequential order code from the DB.
+  // This is race-safe: two simultaneous orders from the same seller
+  // can never receive the same code.
+  const { data: codeResult, error: codeErr } = await supabase.rpc('next_order_code', {
+    p_seller_id: sellerId,
+  });
+
+  if (codeErr) {
+    throw new Error('Failed to allocate order code: ' + codeErr.message);
+  }
+
+  const orderCode = String(codeResult);
 
   const { data: order, error: orderErr } = await supabase
     .from('orders')
