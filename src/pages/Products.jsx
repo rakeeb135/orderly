@@ -41,6 +41,29 @@ function buildProductLink(handle, productId) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Detect whether the native share sheet is actually useful          */
+/*                                                                    */
+/*  On mobile (iOS + Android), navigator.share gives a great OS       */
+/*  sheet with WhatsApp, Instagram, Copy, etc.                        */
+/*                                                                    */
+/*  On Windows / macOS / Linux desktop, navigator.share exists but    */
+/*  the sheet shows useless targets (Teams, Outlook, Mail) and often  */
+/*  has no "Copy link" option. So we skip it entirely and go straight */
+/*  to clipboard copy.                                                */
+/* ------------------------------------------------------------------ */
+function prefersNativeShare() {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+
+  // iPads on iPadOS 13+ masquerade as Macintosh — detect via touch points
+  const isIPadOS = /Macintosh/i.test(ua) && (navigator.maxTouchPoints || 0) > 1;
+  const isIOS = /iPhone|iPad|iPod/i.test(ua) || isIPadOS;
+  const isAndroid = /Android/i.test(ua);
+
+  return isIOS || isAndroid;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Photo tray                                                         */
 /* ------------------------------------------------------------------ */
 const PhotoTray = memo(function PhotoTray({
@@ -791,7 +814,9 @@ export default function Products({ seller, products = [], setProducts }) {
   };
 
   /* ---------------------------------------------------------------- */
-  /*  Per-product share — native share sheet or clipboard copy          */
+  /*  Per-product share                                                 */
+  /*  - Mobile (iOS / Android): native share sheet                     */
+  /*  - Desktop (Windows / macOS / Linux): direct clipboard copy       */
   /* ---------------------------------------------------------------- */
   const handleShareProduct = async (product) => {
     const link = buildProductLink(seller?.handle, product.id);
@@ -800,12 +825,10 @@ export default function Products({ seller, products = [], setProducts }) {
       return;
     }
 
-    // The share text carries the link; no separate url field
-    // (prevents the share sheet from appending the link twice).
-    const shareMessage = `${product.title} — ${formatLKR(product.price)}\n\nOrder here: ${link}`;
+    const useNative = prefersNativeShare() && typeof navigator !== 'undefined' && navigator.share;
 
-    // Prefer native share sheet
-    if (typeof navigator !== 'undefined' && navigator.share) {
+    if (useNative) {
+      const shareMessage = `${product.title} — ${formatLKR(product.price)}\n\nOrder here: ${link}`;
       try {
         await navigator.share({
           title: product.title,
@@ -815,11 +838,11 @@ export default function Products({ seller, products = [], setProducts }) {
       } catch (err) {
         // User cancelled — respect it, no fallback
         if (err?.name === 'AbortError') return;
-        // Any other failure (e.g. no share targets) — fall through to clipboard
+        // Any other failure — fall through to clipboard copy
       }
     }
 
-    // Fallback: copy to clipboard
+    // Clipboard copy (desktop default, and mobile fallback)
     try {
       await navigator.clipboard.writeText(link);
       setCopiedId(product.id);
@@ -848,7 +871,7 @@ export default function Products({ seller, products = [], setProducts }) {
         </button>
       </div>
 
-      {/* Hint banner */}
+      {/* Tip banner */}
       {products.length > 0 && (
         <div className="bg-[#E8F0E9] border border-[#C2D6C5] rounded-2xl p-3 text-[11px] text-[#006241] flex items-start gap-2">
           <Share2 className="w-4 h-4 shrink-0 mt-0.5" />
