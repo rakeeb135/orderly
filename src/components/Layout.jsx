@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate, Link } from 'react-router-dom';
 import {
   Home,
@@ -16,9 +16,30 @@ import Toast from './Toast';
 import NotificationCenter from './NotificationCenter';
 import InstallAppModal from './InstallAppModal';
 
+/* ------------------------------------------------------------------ */
+/*  Viewport hook — mount only one NotificationCenter at a time        */
+/*  (prevents double realtime subscriptions + double chime)            */
+/* ------------------------------------------------------------------ */
+function useIsDesktop() {
+  const [isDesktop, setIsDesktop] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(min-width: 768px)').matches;
+  });
+
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)');
+    const handler = (e) => setIsDesktop(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
+  return isDesktop;
+}
+
 export default function Layout({ seller, setSeller, products, setProducts, onOrderCreated }) {
   const [showPOS, setShowPOS] = useState(false);
   const navigate = useNavigate();
+  const isDesktop = useIsDesktop();
 
   const handleLogout = () => {
     localStorage.removeItem('ordy_active_seller_id');
@@ -39,26 +60,29 @@ export default function Layout({ seller, setSeller, products, setProducts, onOrd
       <Toast />
       <InstallAppModal shopName={seller?.shop_name || 'Ordy'} />
 
+      {/* Desktop floating notification bell — top-right of screen */}
+      {isDesktop && (
+        <div className="fixed top-4 right-6 z-40">
+          <NotificationCenter sellerId={seller?.id} />
+        </div>
+      )}
+
       {/* DESKTOP SIDEBAR */}
       <aside className="hidden md:flex flex-col w-64 bg-white border-r border-[#E7EBE7] p-5 justify-between shrink-0 fixed inset-y-0 left-0 z-30">
         <div className="space-y-5">
-          {/* Shop Header & Notifications */}
-          <div className="flex items-center justify-between pb-4 border-b border-[#E7EBE7]">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-10 h-10 rounded-2xl bg-[#006241] flex items-center justify-center text-white font-black text-sm shadow-xs shrink-0 overflow-hidden">
-                {seller?.logo_url ? (
-                  <img src={seller.logo_url} alt="Logo" className="w-full h-full object-cover" />
-                ) : (
-                  seller?.shop_name?.[0] || 'O'
-                )}
-              </div>
-              <div className="min-w-0">
-                <div className="font-extrabold text-sm truncate">{seller?.shop_name || 'My Store'}</div>
-                <div className="text-[11px] text-[#5A655D] truncate font-mono">/{seller?.handle}</div>
-              </div>
+          {/* Shop Header (bell removed — it lives top-right now) */}
+          <div className="flex items-center gap-2.5 pb-4 border-b border-[#E7EBE7] min-w-0">
+            <div className="w-10 h-10 rounded-2xl bg-[#006241] flex items-center justify-center text-white font-black text-sm shadow-xs shrink-0 overflow-hidden">
+              {seller?.logo_url ? (
+                <img src={seller.logo_url} alt="Logo" className="w-full h-full object-cover" />
+              ) : (
+                seller?.shop_name?.[0] || 'O'
+              )}
             </div>
-
-            <NotificationCenter sellerId={seller?.id} />
+            <div className="min-w-0 flex-1">
+              <div className="font-extrabold text-sm truncate">{seller?.shop_name || 'My Store'}</div>
+              <div className="text-[11px] text-[#5A655D] truncate font-mono">/{seller?.handle}</div>
+            </div>
           </div>
 
           {/* New Order POS Shortcut */}
@@ -141,7 +165,8 @@ export default function Layout({ seller, setSeller, products, setProducts, onOrd
         </div>
 
         <div className="flex items-center gap-2">
-          <NotificationCenter sellerId={seller?.id} />
+          {/* Only mount the mobile notification center on mobile */}
+          {!isDesktop && <NotificationCenter sellerId={seller?.id} />}
 
           <button
             onClick={() => setShowPOS(true)}
@@ -164,7 +189,7 @@ export default function Layout({ seller, setSeller, products, setProducts, onOrd
       </header>
 
       {/* MAIN WORKSPACE */}
-      <main className="flex-1 md:ml-64 p-4 sm:p-8 max-w-5xl mx-auto w-full pb-28 md:pb-8">
+      <main className="flex-1 md:ml-64 p-4 sm:p-8 max-w-5xl mx-auto w-full pb-28 md:pb-8 md:pt-8">
         <Outlet context={{ seller, setSeller, products, setProducts, onOrderCreated, onOpenPOS: () => setShowPOS(true) }} />
       </main>
 
