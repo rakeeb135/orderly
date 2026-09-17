@@ -414,7 +414,8 @@ export async function createOrder({
   items,
   deliveryFee = 0,
   paymentMethod = 'COD',
-  source = 'manual_pos'
+  source = 'manual_pos',
+  autoConfirm = false
 }) {
   const cleanPhone = normalizeSLPhone(customerPhone);
   const cleanSecondary = secondaryPhone ? normalizeSLPhone(secondaryPhone) : '';
@@ -470,7 +471,9 @@ export async function createOrder({
       ? 'Awaiting Payment'
       : (paymentMethod === 'Bank' ? 'Paid' : 'Unpaid'),
       status: 'received',
-      source
+      source,
+      buyer_confirmed: autoConfirm,
+      buyer_confirmed_at: autoConfirm ? new Date().toISOString() : null
     }])
     .select()
     .single();
@@ -999,4 +1002,21 @@ export async function bulkUpdateOrderStatus(orderIds, nextStatus) {
     updatedOrders: data || [],
     skipped: (orders || []).length - (data?.length || 0),
   };
+}
+
+// ----------------------------------------------------
+// PRODUCT DEEP LINK LOOKUP
+// ----------------------------------------------------
+
+export async function fetchProductBySlug(sellerId, slug) {
+  if (!sellerId || !slug) return null;
+  const { data, error } = await supabase
+    .from('products')
+    .select('*')
+    .eq('seller_id', sellerId)
+    .eq('slug', slug)
+    .maybeSingle();
+
+  if (error) return null;
+  return data;
 }
