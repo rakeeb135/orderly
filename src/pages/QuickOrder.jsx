@@ -227,7 +227,6 @@ export default function QuickOrder() {
         deliveryFee: calculatedDeliveryFee,
         paymentMethod,
         source: 'quick_order',
-        autoConfirm: true,
       });
 
       try {
