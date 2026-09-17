@@ -17,6 +17,7 @@ import {
   CheckCircle2,
   Trash2,
   Tag,
+  ArrowRight,
 } from 'lucide-react';
 import {
   fetchSellerByHandle,
@@ -292,6 +293,7 @@ export default function Storefront() {
           ...selectedProductView,
           itemKey,
           title: `${selectedProductView.title}${variantTitle}`,
+          baseTitle: selectedProductView.title,
           chosenSize,
           chosenColor,
           free_delivery: selectedProductView.free_delivery,
@@ -893,27 +895,43 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
               </div>
             )}
 
-            {justAdded && (
-              <div className="bg-[#E8F0E9] border border-[#C2D6C5] text-[#006241] text-xs font-bold px-3 py-2.5 rounded-2xl flex items-center justify-center gap-2 animate-in fade-in">
-                <CheckCircle2 className="w-4 h-4" /> Added to bag
-              </div>
-            )}
-
             <button
               type="button"
               onClick={addToCartFromModal}
-              className="w-full py-3.5 bg-[#006241] hover:bg-[#004F34] text-white font-bold rounded-2xl text-xs active:scale-95 transition shadow-xs mt-2 flex items-center justify-center gap-2"
+              className={`w-full py-3.5 font-bold rounded-2xl text-xs active:scale-95 transition shadow-xs flex items-center justify-center gap-2 ${
+                justAdded
+                  ? 'bg-[#E8F0E9] text-[#006241] border border-[#C2D6C5]'
+                  : 'bg-[#006241] hover:bg-[#004F34] text-white'
+              }`}
             >
-              Add {chosenQty} to Bag • {formatLKR(Number(selectedProductView.price) * chosenQty)}
+              {justAdded ? (
+                <><CheckCircle2 className="w-4 h-4" /> Added — pick another option</>
+              ) : (
+                <>Add {chosenQty} to Bag • {formatLKR(Number(selectedProductView.price) * chosenQty)}</>
+              )}
             </button>
 
-            <button
-              type="button"
-              onClick={closeProductModal}
-              className="w-full py-2.5 text-[#5A655D] hover:text-black text-xs font-semibold transition"
-            >
-              Done — view bag
-            </button>
+            {totalItems > 0 && (
+              <div className="flex items-center justify-between gap-3 pt-3 border-t border-[#E7EBE7]">
+                <div className="flex items-center gap-2 text-xs min-w-0">
+                  <ShoppingCart className="w-4 h-4 text-[#006241] shrink-0" />
+                  <span className="font-bold text-[#111813] truncate">
+                    {totalItems} item{totalItems === 1 ? '' : 's'}
+                  </span>
+                  <span className="text-stone-300 shrink-0">·</span>
+                  <span className="font-black text-[#006241] shrink-0">
+                    {formatLKR(subtotal)}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { closeProductModal(); openCheckout(); }}
+                  className="px-4 py-2 bg-[#111813] hover:bg-stone-800 text-white rounded-xl text-xs font-bold active:scale-95 transition flex items-center gap-1 shrink-0"
+                >
+                  Checkout <ArrowRight className="w-3 h-3" />
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1099,7 +1117,23 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                       className="bg-white border border-[#E7EBE7] rounded-xl p-2.5 flex items-center gap-2"
                     >
                       <div className="min-w-0 flex-1">
-                        <div className="font-bold text-[11px] truncate">{item.title}</div>
+                        <div className="font-bold text-[11px] truncate">
+                          {item.baseTitle || item.title}
+                        </div>
+                        {(item.chosenSize || item.chosenColor) && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {item.chosenSize && (
+                              <span className="px-1.5 py-0.5 bg-stone-100 border border-[#E7EBE7] rounded text-[9px] font-bold text-[#111813]">
+                                {item.chosenSize}
+                              </span>
+                            )}
+                            {item.chosenColor && (
+                              <span className="px-1.5 py-0.5 bg-stone-100 border border-[#E7EBE7] rounded text-[9px] font-bold text-[#111813]">
+                                {item.chosenColor}
+                              </span>
+                            )}
+                          </div>
+                        )}
                         <div className="text-[10px] text-[#5A655D] font-mono mt-0.5">
                           {formatLKR(Number(item.price) * item.quantity)}
                         </div>

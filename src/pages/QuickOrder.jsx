@@ -197,6 +197,7 @@ export default function QuickOrder() {
           itemKey,
           id: product.id,
           title: `${product.title}${variantTitle}`,
+          baseTitle: product.title,
           price: Number(product.price),
           quantity: qtyToAdd,
           size: chosenSize,
@@ -734,19 +735,23 @@ export default function QuickOrder() {
             </div>
           )}
 
-          {justAdded && (
-            <div className="bg-[#E8F0E9] border border-[#C2D6C5] text-[#006241] text-xs font-bold px-3 py-2.5 rounded-2xl flex items-center justify-center gap-2">
-              <CheckCircle2 className="w-4 h-4" /> Added to order
-            </div>
-          )}
-
           <button
             type="button"
             onClick={handleAddSelection}
-            className="w-full py-3.5 bg-[#006241] hover:bg-[#004F34] text-white font-bold rounded-2xl text-sm active:scale-[0.98] transition shadow-sm flex items-center justify-center gap-2"
+            className={`w-full py-3.5 font-bold rounded-2xl text-sm active:scale-[0.98] transition shadow-sm flex items-center justify-center gap-2 ${
+              justAdded
+                ? 'bg-[#E8F0E9] text-[#006241] border border-[#C2D6C5]'
+                : 'bg-[#006241] hover:bg-[#004F34] text-white'
+            }`}
           >
-            {selections.length === 0 ? 'Add to Order' : '+ Add Another Selection'} •{' '}
-            {formatLKR(Number(product.price) * chosenQty)}
+            {justAdded ? (
+              <><CheckCircle2 className="w-4 h-4" /> Added — pick another option</>
+            ) : (
+              <>
+                {selections.length === 0 ? 'Add to Order' : '+ Add Another Selection'} •{' '}
+                {formatLKR(Number(product.price) * chosenQty)}
+              </>
+            )}
           </button>
         </div>
 
@@ -769,7 +774,23 @@ export default function QuickOrder() {
                   className="bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl p-3 flex items-center gap-2"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="font-bold text-xs text-[#111813] truncate">{s.title}</div>
+                    <div className="font-bold text-xs text-[#111813] truncate">
+                      {s.baseTitle || s.title}
+                    </div>
+                    {(s.size || s.color) && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {s.size && (
+                          <span className="px-1.5 py-0.5 bg-white border border-[#E7EBE7] rounded text-[9px] font-bold text-[#111813]">
+                            {s.size}
+                          </span>
+                        )}
+                        {s.color && (
+                          <span className="px-1.5 py-0.5 bg-white border border-[#E7EBE7] rounded text-[9px] font-bold text-[#111813]">
+                            {s.color}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     <div className="text-[10px] text-[#5A655D] font-mono mt-0.5">
                       {formatLKR(s.price)} × {s.quantity} = {formatLKR(s.price * s.quantity)}
                     </div>
