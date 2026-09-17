@@ -21,6 +21,7 @@ import {
   RotateCcw,
   Landmark,
   PackageCheck,
+  AlertCircle,
 } from 'lucide-react';
 import {
   fetchOrders,
@@ -33,22 +34,53 @@ import { supabase } from '../supabase';
 import PrintManifestModal from '../components/PrintManifestModal';
 import { notify } from '../components/Toast';
 
+/* ------------------------------------------------------------------ */
+/*  Tabs — vocabulary MUST match Dashboard pipeline buckets            */
+/* ------------------------------------------------------------------ */
 const PIPELINE_TABS = [
-  { id: 'active', label: 'Active', icon: Layers, emptyTitle: 'All caught up!', emptyDesc: 'No active orders require your attention right now.' },
-  { id: 'received', label: 'To Confirm', icon: Clock, emptyTitle: 'Nothing to confirm', emptyDesc: 'New orders awaiting buyer verification will appear here.' },
-  { id: 'packed', label: 'Packed', icon: Package, emptyTitle: 'No packed orders', emptyDesc: 'Orders ready for dispatch will appear here.' },
-  { id: 'dispatched', label: 'In Transit', icon: Truck, emptyTitle: 'No orders in transit', emptyDesc: 'Dispatched orders being delivered will appear here.' },
-  { id: 'delivered', label: 'Delivered', icon: CheckCircle2, emptyTitle: 'No deliveries yet', emptyDesc: 'Completed orders will show up here.' },
-  { id: 'canceled', label: 'Returned', icon: RotateCcw, emptyTitle: 'No returns', emptyDesc: 'Returned or cancelled orders will appear here.' },
+  {
+    id: 'active',
+    label: 'Active',
+    icon: Layers,
+    emptyTitle: 'All caught up!',
+    emptyDesc: 'No active orders require your attention right now.',
+  },
+  {
+    id: 'received',
+    label: 'To Process',
+    icon: Clock,
+    emptyTitle: 'Nothing to process',
+    emptyDesc: 'New orders will appear here the moment they arrive.',
+  },
+  {
+    id: 'packed',
+    label: 'Packed',
+    icon: Package,
+    emptyTitle: 'Nothing packed yet',
+    emptyDesc: 'Orders you pack will show up here, ready for dispatch.',
+  },
+  {
+    id: 'dispatched',
+    label: 'In Transit',
+    icon: Truck,
+    emptyTitle: 'No orders in transit',
+    emptyDesc: 'Orders with couriers will show up here.',
+  },
+  {
+    id: 'delivered',
+    label: 'Delivered',
+    icon: CheckCircle2,
+    emptyTitle: 'No deliveries yet',
+    emptyDesc: 'Completed orders will show up here.',
+  },
+  {
+    id: 'canceled',
+    label: 'Returned',
+    icon: RotateCcw,
+    emptyTitle: 'No returns',
+    emptyDesc: 'Returned or cancelled orders will appear here.',
+  },
 ];
-
-const STATUS_PRIORITY = {
-  received: 1,
-  packed: 2,
-  dispatched: 3,
-  delivered: 4,
-  canceled: 5
-};
 
 const SRI_LANKAN_COURIERS = [
   'Koombiyo Delivery',
@@ -58,11 +90,11 @@ const SRI_LANKAN_COURIERS = [
   'Fardar Express',
   'Certis Lanka',
   'Courier.lk',
-  'Other / In-House Rider'
+  'Other / In-House Rider',
 ];
 
 /* ------------------------------------------------------------------ */
-/*  Relative timestamp helper                                          */
+/*  Relative timestamp                                                 */
 /* ------------------------------------------------------------------ */
 function relativeTime(iso) {
   if (!iso) return '';
@@ -79,7 +111,26 @@ function relativeTime(iso) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Status accent stripe — matches order status                        */
+/*  Sort priority — matches the seller's daily workflow               */
+/* ------------------------------------------------------------------ */
+function getSortPriority(ord) {
+  if (ord.status === 'canceled') return 60;
+  if (ord.status === 'delivered') return 50;
+  if (ord.status === 'dispatched') return 40;
+  if (ord.status === 'packed') return 30;
+
+  // status === 'received'
+  const isCOD = !ord.payment_method || ord.payment_method === 'COD';
+  const isBank = ord.payment_method === 'Bank';
+  const awaitingBankPay = isBank && ord.payment_status === 'Awaiting Payment';
+  const unverifiedCOD = isCOD && !ord.buyer_confirmed;
+
+  if (awaitingBankPay || unverifiedCOD) return 10;
+  return 20;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Status accent stripe                                               */
 /* ------------------------------------------------------------------ */
 function statusStripe(ord) {
   if (ord.status === 'canceled') return 'bg-stone-300';
@@ -87,15 +138,17 @@ function statusStripe(ord) {
   if (ord.status === 'dispatched') return 'bg-purple-500';
   if (ord.status === 'packed') return 'bg-blue-500';
 
-  // received — differentiate by payment state
+  const isCOD = !ord.payment_method || ord.payment_method === 'COD';
   const isBank = ord.payment_method === 'Bank';
-  const isAwaitingPayment = isBank && ord.payment_status === 'Awaiting Payment';
-  if (isAwaitingPayment) return 'bg-amber-500';
-  return 'bg-amber-400';
+  const awaitingBankPay = isBank && ord.payment_status === 'Awaiting Payment';
+  const unverifiedCOD = isCOD && !ord.buyer_confirmed;
+
+  if (awaitingBankPay || unverifiedCOD) return 'bg-amber-500';
+  return 'bg-emerald-500';
 }
 
 /* ------------------------------------------------------------------ */
-/*  Eligibility check for bulk pack                                    */
+/*  Bulk pack eligibility                                              */
 /* ------------------------------------------------------------------ */
 function isEligibleForPack(ord) {
   if (ord.status !== 'received') return false;
@@ -105,6 +158,39 @@ function isEligibleForPack(ord) {
   if (isCOD) return Boolean(ord.buyer_confirmed);
   if (isBank) return isPaid;
   return false;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Section header divider (used in "To Process" tab)                  */
+/* ------------------------------------------------------------------ */
+function SectionHeader({ tone, label, count }) {
+  const map = {
+    waiting: {
+      text: 'text-amber-700',
+      bg: 'bg-amber-100',
+      line: 'bg-amber-200',
+      icon: AlertCircle,
+    },
+    ready: {
+      text: 'text-[#006241]',
+      bg: 'bg-emerald-100',
+      line: 'bg-emerald-200',
+      icon: Check,
+    },
+  };
+  const style = map[tone];
+  const Icon = style.icon;
+
+  return (
+    <div className="flex items-center gap-2 pt-1">
+      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md ${style.bg} ${style.text} text-[10px] font-bold uppercase tracking-wider`}>
+        <Icon className="w-2.5 h-2.5" />
+        {label}
+      </span>
+      <span className={`text-[10px] font-bold ${style.text}`}>{count}</span>
+      <div className={`flex-1 h-px ${style.line}`} />
+    </div>
+  );
 }
 
 export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
@@ -216,14 +302,13 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
 
     return orders
       .filter((o) => {
-        let matchTab = false;
-        if (activeTab === 'active') {
-          matchTab = o.status !== 'delivered' && o.status !== 'canceled';
-        } else {
-          matchTab = o.status === activeTab;
-        }
+        const matchTab =
+          activeTab === 'active'
+            ? o.status !== 'delivered' && o.status !== 'canceled'
+            : o.status === activeTab;
 
-        const matchQuery = !q ||
+        const matchQuery =
+          !q ||
           o.order_code?.toLowerCase().includes(q) ||
           o.customer_name?.toLowerCase().includes(q) ||
           o.customer_phone?.includes(q) ||
@@ -233,19 +318,27 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
         return matchTab && matchQuery;
       })
       .sort((a, b) => {
-        if (activeTab === 'active' || activeTab === 'received') {
-          if (a.status === 'received' && b.status === 'received') {
-            if (a.buyer_confirmed !== b.buyer_confirmed) {
-              return a.buyer_confirmed ? 1 : -1;
-            }
-          }
-        }
-        const rankA = STATUS_PRIORITY[a.status] || 99;
-        const rankB = STATUS_PRIORITY[b.status] || 99;
-        if (rankA !== rankB) return rankA - rankB;
+        const pa = getSortPriority(a);
+        const pb = getSortPriority(b);
+        if (pa !== pb) return pa - pb;
         return new Date(b.created_at) - new Date(a.created_at);
       });
   }, [orders, activeTab, searchQuery]);
+
+  /* ---------------------------------------------------------------- */
+  /*  Grouped view for "To Process" tab                                */
+  /*  Splits received orders into Waiting on Buyer vs Ready to Pack     */
+  /* ---------------------------------------------------------------- */
+  const groupedView = useMemo(() => {
+    if (activeTab !== 'received') return null;
+    const waiting = [];
+    const ready = [];
+    filteredOrders.forEach((o) => {
+      if (isEligibleForPack(o)) ready.push(o);
+      else waiting.push(o);
+    });
+    return { waiting, ready };
+  }, [filteredOrders, activeTab]);
 
   /* ---------------------------------------------------------------- */
   /*  Bulk pack eligibility count                                      */
@@ -378,13 +471,227 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
   const activeTabMeta = PIPELINE_TABS.find((t) => t.id === activeTab);
 
   /* ---------------------------------------------------------------- */
+  /*  Order card renderer (extracted so it can be reused in groups)    */
+  /* ---------------------------------------------------------------- */
+  const renderOrderCard = (ord) => {
+    const isSelected = selectedOrderIds.includes(ord.id);
+    const cleanPhone = ord.customer_phone?.replace(/[^0-9]/g, '').replace(/^0/, '94');
+    const items = Array.isArray(ord.items) ? ord.items : [];
+    const isCanceled = ord.status === 'canceled';
+    const isBusy = actionLoadingId === ord.id;
+
+    const isCOD = !ord.payment_method || ord.payment_method === 'COD';
+    const isBank = ord.payment_method === 'Bank';
+    const isAwaitingPayment = isBank && ord.payment_status === 'Awaiting Payment';
+    const packable = isEligibleForPack(ord);
+
+    const visibleItems = items.slice(0, 2);
+    const extraItems = items.length - visibleItems.length;
+    const totalQty = items.reduce((sum, i) => sum + (i.quantity || 1), 0);
+
+    const trackingUrl = `${window.location.origin}/order/${ord.id}`;
+    const verifyMsg = `Hi ${ord.customer_name}! Please tap to confirm your order #${ord.order_code || ord.id.slice(0, 4)} from ${seller?.shop_name}: ${trackingUrl}`;
+
+    return (
+      <div
+        key={ord.id}
+        onClick={() => {
+          if (isSelectionMode) {
+            toggleSelectOrder(ord.id);
+          } else {
+            navigate(`/orders/${ord.id}`);
+          }
+        }}
+        className={`group relative bg-white border rounded-2xl transition-all duration-200 cursor-pointer overflow-hidden ${
+          isSelected
+            ? 'border-[#006241] ring-2 ring-[#006241]/15 bg-[#F0FDF4]/40 shadow-sm'
+            : isCanceled
+            ? 'border-[#E4E4E7] bg-stone-50/60 opacity-65'
+            : 'border-[#E4E4E7] hover:border-stone-300 hover:shadow-md hover:shadow-stone-200/40'
+        }`}
+      >
+        <div className={`absolute left-0 top-0 bottom-0 w-1 ${statusStripe(ord)} ${isCanceled ? 'opacity-40' : ''}`} />
+
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 p-3.5 pl-4">
+          <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1">
+            {isSelectionMode && (
+              <button
+                type="button"
+                onClick={(e) => toggleSelectOrder(ord.id, e)}
+                className="shrink-0 pt-0.5 sm:pt-0 cursor-pointer"
+                aria-label={isSelected ? 'Deselect order' : 'Select order'}
+              >
+                {isSelected ? (
+                  <CheckSquare className="w-5 h-5 text-[#006241]" />
+                ) : (
+                  <Square className="w-5 h-5 text-stone-300 hover:text-stone-500 transition" />
+                )}
+              </button>
+            )}
+
+            <div className="min-w-0 flex-1 space-y-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`font-mono font-black text-sm ${isCanceled ? 'text-stone-400 line-through' : 'text-[#18181B]'}`}>
+                  #{ord.order_code || ord.id.slice(0, 4)}
+                </span>
+
+                {isAwaitingPayment && !isCanceled && (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                    <Landmark className="w-2.5 h-2.5" /> Awaiting Payment
+                  </span>
+                )}
+
+                {isCOD && ord.status === 'received' && !ord.buyer_confirmed && !isCanceled && (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" /> Unverified
+                  </span>
+                )}
+
+                {(ord.buyer_confirmed || (isBank && !isAwaitingPayment)) && ord.status === 'received' && !isCanceled && (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-emerald-50 text-[#006241] border border-emerald-200">
+                    <Check className="w-2.5 h-2.5" /> Ready to Pack
+                  </span>
+                )}
+
+                {ord.status === 'packed' && !isCanceled && (
+                  <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                    Packed
+                  </span>
+                )}
+                {ord.status === 'dispatched' && !isCanceled && (
+                  <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                    In Transit
+                  </span>
+                )}
+                {ord.status === 'delivered' && !isCanceled && (
+                  <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-emerald-50 text-[#006241] border border-emerald-200">
+                    Delivered
+                  </span>
+                )}
+                {isCanceled && (
+                  <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-stone-100 text-stone-500 border border-stone-200">
+                    Returned
+                  </span>
+                )}
+
+                <span className="text-[10px] text-stone-400 font-medium ml-auto sm:ml-0">
+                  {relativeTime(ord.created_at)}
+                </span>
+              </div>
+
+              <div className="text-xs truncate">
+                <span className={`font-semibold ${isCanceled ? 'text-stone-400' : 'text-[#18181B]'}`}>
+                  {ord.customer_name}
+                </span>
+                {ord.customer_phone && (
+                  <span className="text-[10px] font-mono text-stone-400 ml-1.5">
+                    {ord.customer_phone}
+                  </span>
+                )}
+                {(ord.city || ord.district) && (
+                  <span className="text-[10px] text-stone-400 ml-1.5">
+                    · {ord.district || ord.city}
+                  </span>
+                )}
+              </div>
+
+              {items.length > 0 && (
+                <div className="text-[11px] text-[#52525B] flex items-center gap-1.5 flex-wrap pt-0.5">
+                  <Package className="w-3 h-3 text-stone-400 shrink-0" />
+                  {visibleItems.map((item, i) => (
+                    <React.Fragment key={i}>
+                      <span className="truncate max-w-[140px] font-medium">{item.title}</span>
+                      <span className="text-stone-400">×{item.quantity || 1}</span>
+                      {i < visibleItems.length - 1 && <span className="text-stone-300">·</span>}
+                    </React.Fragment>
+                  ))}
+                  {extraItems > 0 && (
+                    <span className="text-[#006241] font-bold">+{extraItems} more</span>
+                  )}
+                  {items.length === 1 && totalQty > 1 && (
+                    <span className="text-stone-400">({totalQty} items)</span>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-[#E4E4E7] sm:pl-3">
+            <div className="text-left sm:text-right leading-tight">
+              <div className={`text-sm font-black ${
+                isCanceled ? 'text-stone-400 line-through'
+                : isAwaitingPayment ? 'text-amber-700'
+                : 'text-[#18181B]'
+              }`}>
+                {formatLKR(ord.total_amount)}
+              </div>
+              <div className={`text-[9px] font-bold uppercase tracking-wider ${
+                isCOD ? 'text-amber-600' : 'text-emerald-600'
+              }`}>
+                {isCOD ? 'COD' : 'Bank'}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+              {isCOD && !ord.buyer_confirmed && ord.status === 'received' && !isSelectionMode && (
+                <a
+                  href={`https://wa.me/${cleanPhone}?text=${encodeURIComponent(verifyMsg)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Send WhatsApp confirmation"
+                  className="px-2.5 py-1.5 bg-[#E8F0E9] hover:bg-[#D5E5D7] text-[#006241] rounded-xl text-xs font-bold transition active:scale-95 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <MessageCircle className="w-3.5 h-3.5" />
+                  <span>Verify</span>
+                </a>
+              )}
+
+              {ord.status === 'received' && packable && !isSelectionMode && (
+                <button
+                  type="button"
+                  disabled={isBusy}
+                  onClick={(e) => handleInlineAction(ord.id, 'packed', e)}
+                  className="px-2.5 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-xs font-bold transition active:scale-95 flex items-center gap-1 shadow-xs disabled:opacity-50 cursor-pointer"
+                >
+                  {isBusy ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <>Pack <ArrowRight className="w-3 h-3" /></>
+                  )}
+                </button>
+              )}
+
+              {ord.status === 'packed' && !isSelectionMode && (
+                <button
+                  type="button"
+                  disabled={isBusy}
+                  onClick={(e) => { e.stopPropagation(); setDispatchOrderTarget(ord); }}
+                  className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition active:scale-95 flex items-center gap-1 shadow-xs disabled:opacity-50 cursor-pointer"
+                >
+                  {isBusy ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <>Dispatch <Truck className="w-3.5 h-3" /></>
+                  )}
+                </button>
+              )}
+
+              {!isSelectionMode && (
+                <ChevronRight className="w-4 h-4 text-stone-300 group-hover:text-[#18181B] group-hover:translate-x-0.5 transition" />
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  /* ---------------------------------------------------------------- */
   /*  Render                                                           */
   /* ---------------------------------------------------------------- */
   return (
     <div className="space-y-4 pb-32 text-[#18181B] max-w-5xl mx-auto">
-      {/* ============================================================ */}
-      {/*  HEADER — merged search + new order + selection controls      */}
-      {/* ============================================================ */}
+      {/* HEADER */}
       <div className="bg-white border border-[#E4E4E7] rounded-[24px] p-4 sm:p-5 shadow-2xs space-y-3">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
           <div className="min-w-0">
@@ -422,7 +729,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
           </div>
         </div>
 
-        {/* Selection controls row — only when there are orders */}
         {filteredOrders.length > 0 && (
           <div className="flex items-center justify-between pt-3 border-t border-[#E4E4E7] text-xs">
             <div className="text-[#71717A] font-medium">
@@ -463,9 +769,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
         )}
       </div>
 
-      {/* ============================================================ */}
-      {/*  TABS                                                         */}
-      {/* ============================================================ */}
+      {/* TABS */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none -mx-1 px-1">
         {PIPELINE_TABS.map((tab) => {
           const Icon = tab.icon;
@@ -496,9 +800,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
         })}
       </div>
 
-      {/* ============================================================ */}
-      {/*  ORDERS LIST                                                  */}
-      {/* ============================================================ */}
+      {/* ORDERS LIST */}
       {loading ? (
         <div className="bg-white border border-[#E4E4E7] rounded-[24px] p-16 flex justify-center items-center">
           <Loader2 className="w-6 h-6 text-[#006241] animate-spin" />
@@ -519,250 +821,35 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
             </p>
           </div>
         </div>
-      ) : (
+      ) : groupedView ? (
+        /* ---- Grouped view for "To Process" tab ---- */
         <div className="space-y-2">
-          {filteredOrders.map((ord) => {
-            const isSelected = selectedOrderIds.includes(ord.id);
-            const cleanPhone = ord.customer_phone?.replace(/[^0-9]/g, '').replace(/^0/, '94');
-            const items = Array.isArray(ord.items) ? ord.items : [];
-            const isCanceled = ord.status === 'canceled';
-            const isBusy = actionLoadingId === ord.id;
+          {groupedView.waiting.length > 0 && (
+            <SectionHeader
+              tone="waiting"
+              label="Waiting on Buyer"
+              count={groupedView.waiting.length}
+            />
+          )}
+          {groupedView.waiting.map(renderOrderCard)}
 
-            const isCOD = !ord.payment_method || ord.payment_method === 'COD';
-            const isBank = ord.payment_method === 'Bank';
-            const isAwaitingPayment = isBank && ord.payment_status === 'Awaiting Payment';
-            const packable = isEligibleForPack(ord);
-
-            // Item preview — cap at 2
-            const visibleItems = items.slice(0, 2);
-            const extraItems = items.length - visibleItems.length;
-            const totalQty = items.reduce((sum, i) => sum + (i.quantity || 1), 0);
-
-            const trackingUrl = `${window.location.origin}/order/${ord.id}`;
-            const verifyMsg = `Hi ${ord.customer_name}! Please tap to confirm your order #${ord.order_code || ord.id.slice(0, 4)} from ${seller?.shop_name}: ${trackingUrl}`;
-
-            return (
-              <div
-                key={ord.id}
-                onClick={() => {
-                  if (isSelectionMode) {
-                    toggleSelectOrder(ord.id);
-                  } else {
-                    navigate(`/orders/${ord.id}`);
-                  }
-                }}
-                className={`group relative bg-white border rounded-2xl transition-all duration-200 cursor-pointer overflow-hidden ${
-                  isSelected
-                    ? 'border-[#006241] ring-2 ring-[#006241]/15 bg-[#F0FDF4]/40 shadow-sm'
-                    : isCanceled
-                    ? 'border-[#E4E4E7] bg-stone-50/60 opacity-65'
-                    : 'border-[#E4E4E7] hover:border-stone-300 hover:shadow-md hover:shadow-stone-200/40'
-                }`}
-              >
-                {/* Status accent stripe */}
-                <div className={`absolute left-0 top-0 bottom-0 w-1 ${statusStripe(ord)} ${isCanceled ? 'opacity-40' : ''}`} />
-
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 p-3.5 pl-4">
-                  {/* Left block — checkbox + order info */}
-                  <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1">
-                    {isSelectionMode && (
-                      <button
-                        type="button"
-                        onClick={(e) => toggleSelectOrder(ord.id, e)}
-                        className="shrink-0 pt-0.5 sm:pt-0 cursor-pointer"
-                        aria-label={isSelected ? 'Deselect order' : 'Select order'}
-                      >
-                        {isSelected ? (
-                          <CheckSquare className="w-5 h-5 text-[#006241]" />
-                        ) : (
-                          <Square className="w-5 h-5 text-stone-300 hover:text-stone-500 transition" />
-                        )}
-                      </button>
-                    )}
-
-                    <div className="min-w-0 flex-1 space-y-1">
-                      {/* Row 1: Order code + status pill + time */}
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`font-mono font-black text-sm ${isCanceled ? 'text-stone-400 line-through' : 'text-[#18181B]'}`}>
-                          #{ord.order_code || ord.id.slice(0, 4)}
-                        </span>
-
-                        {/* Awaiting Payment */}
-                        {isAwaitingPayment && !isCanceled && (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                            <Landmark className="w-2.5 h-2.5" /> Awaiting Payment
-                          </span>
-                        )}
-
-                        {/* COD unverified */}
-                        {isCOD && ord.status === 'received' && !ord.buyer_confirmed && !isCanceled && (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" /> Unverified
-                          </span>
-                        )}
-
-                        {/* Bank paid, received */}
-                        {isBank && !isAwaitingPayment && ord.status === 'received' && !isCanceled && (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-emerald-50 text-[#006241] border border-emerald-200">
-                            <Check className="w-2.5 h-2.5" /> Ready to Pack
-                          </span>
-                        )}
-
-                        {/* COD verified, received */}
-                        {isCOD && ord.buyer_confirmed && ord.status === 'received' && !isCanceled && (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-emerald-50 text-[#006241] border border-emerald-200">
-                            <Check className="w-2.5 h-2.5" /> Ready to Pack
-                          </span>
-                        )}
-
-                        {/* Non-received status pills */}
-                        {ord.status === 'packed' && !isCanceled && (
-                          <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                            Packed
-                          </span>
-                        )}
-                        {ord.status === 'dispatched' && !isCanceled && (
-                          <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
-                            In Transit
-                          </span>
-                        )}
-                        {ord.status === 'delivered' && !isCanceled && (
-                          <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-emerald-50 text-[#006241] border border-emerald-200">
-                            Delivered
-                          </span>
-                        )}
-                        {isCanceled && (
-                          <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-stone-100 text-stone-500 border border-stone-200">
-                            Returned
-                          </span>
-                        )}
-
-                        <span className="text-[10px] text-stone-400 font-medium ml-auto sm:ml-0">
-                          {relativeTime(ord.created_at)}
-                        </span>
-                      </div>
-
-                      {/* Row 2: Customer name + phone + location */}
-                      <div className="text-xs truncate">
-                        <span className={`font-semibold ${isCanceled ? 'text-stone-400' : 'text-[#18181B]'}`}>
-                          {ord.customer_name}
-                        </span>
-                        {ord.customer_phone && (
-                          <span className="text-[10px] font-mono text-stone-400 ml-1.5">
-                            {ord.customer_phone}
-                          </span>
-                        )}
-                        {(ord.city || ord.district) && (
-                          <span className="text-[10px] text-stone-400 ml-1.5">
-                            · {ord.district || ord.city}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Row 3: Items preview (max 2) */}
-                      {items.length > 0 && (
-                        <div className="text-[11px] text-[#52525B] flex items-center gap-1.5 flex-wrap pt-0.5">
-                          <Package className="w-3 h-3 text-stone-400 shrink-0" />
-                          {visibleItems.map((item, i) => (
-                            <React.Fragment key={i}>
-                              <span className="truncate max-w-[140px] font-medium">{item.title}</span>
-                              <span className="text-stone-400">×{item.quantity || 1}</span>
-                              {i < visibleItems.length - 1 && (
-                                <span className="text-stone-300">·</span>
-                              )}
-                            </React.Fragment>
-                          ))}
-                          {extraItems > 0 && (
-                            <span className="text-[#006241] font-bold">
-                              +{extraItems} more
-                            </span>
-                          )}
-                          {items.length === 1 && totalQty > 1 && (
-                            <span className="text-stone-400">
-                              ({totalQty} items)
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Right block — amount + actions */}
-                  <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-[#E4E4E7] sm:pl-3">
-                    <div className="text-left sm:text-right leading-tight">
-                      <div className={`text-sm font-black ${
-                        isCanceled ? 'text-stone-400 line-through'
-                        : isAwaitingPayment ? 'text-amber-700'
-                        : 'text-[#18181B]'
-                      }`}>
-                        {formatLKR(ord.total_amount)}
-                      </div>
-                      <div className={`text-[9px] font-bold uppercase tracking-wider ${
-                        isCOD ? 'text-amber-600' : 'text-emerald-600'
-                      }`}>
-                        {isCOD ? 'COD' : 'Bank'}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                      {isCOD && !ord.buyer_confirmed && ord.status === 'received' && !isSelectionMode && (
-                        <a
-                          href={`https://wa.me/${cleanPhone}?text=${encodeURIComponent(verifyMsg)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title="Send WhatsApp confirmation"
-                          className="px-2.5 py-1.5 bg-[#E8F0E9] hover:bg-[#D5E5D7] text-[#006241] rounded-xl text-xs font-bold transition active:scale-95 flex items-center gap-1.5 cursor-pointer"
-                        >
-                          <MessageCircle className="w-3.5 h-3.5" />
-                          <span className="hidden sm:inline">Verify</span>
-                        </a>
-                      )}
-
-                      {ord.status === 'received' && packable && !isSelectionMode && (
-                        <button
-                          type="button"
-                          disabled={isBusy}
-                          onClick={(e) => handleInlineAction(ord.id, 'packed', e)}
-                          className="px-2.5 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-xs font-bold transition active:scale-95 flex items-center gap-1 shadow-xs disabled:opacity-50 cursor-pointer"
-                        >
-                          {isBusy ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <>Pack <ArrowRight className="w-3 h-3" /></>
-                          )}
-                        </button>
-                      )}
-
-                      {ord.status === 'packed' && !isSelectionMode && (
-                        <button
-                          type="button"
-                          disabled={isBusy}
-                          onClick={(e) => { e.stopPropagation(); setDispatchOrderTarget(ord); }}
-                          className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition active:scale-95 flex items-center gap-1 shadow-xs disabled:opacity-50 cursor-pointer"
-                        >
-                          {isBusy ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <>Dispatch <Truck className="w-3.5 h-3" /></>
-                          )}
-                        </button>
-                      )}
-
-                      {!isSelectionMode && (
-                        <ChevronRight className="w-4 h-4 text-stone-300 group-hover:text-[#18181B] group-hover:translate-x-0.5 transition" />
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+          {groupedView.ready.length > 0 && (
+            <SectionHeader
+              tone="ready"
+              label="Ready to Pack"
+              count={groupedView.ready.length}
+            />
+          )}
+          {groupedView.ready.map(renderOrderCard)}
+        </div>
+      ) : (
+        /* ---- Flat list for all other tabs ---- */
+        <div className="space-y-2">
+          {filteredOrders.map(renderOrderCard)}
         </div>
       )}
 
-      {/* ============================================================ */}
-      {/*  DISPATCH MODAL                                               */}
-      {/* ============================================================ */}
+      {/* DISPATCH MODAL */}
       {dispatchOrderTarget && (
         <div className="fixed inset-0 bg-[#18181B]/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-[24px] max-w-sm w-full shadow-2xl text-xs text-[#18181B] overflow-hidden">
@@ -835,9 +922,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
         </div>
       )}
 
-      {/* ============================================================ */}
-      {/*  FLOATING BATCH BAR                                           */}
-      {/* ============================================================ */}
+      {/* FLOATING BATCH BAR */}
       {selectedOrderIds.length > 0 && (
         <div className="fixed bottom-20 sm:bottom-6 left-4 right-4 max-w-lg mx-auto bg-[#18181B] text-white p-2.5 pl-4 rounded-[20px] shadow-2xl shadow-stone-900/30 flex items-center justify-between gap-2 z-40 border border-stone-800/80 backdrop-blur">
           <div className="leading-tight shrink-0">
@@ -906,9 +991,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
         </div>
       )}
 
-      {/* ============================================================ */}
-      {/*  PRINT MODAL                                                  */}
-      {/* ============================================================ */}
+      {/* PRINT MODAL */}
       {showPrintModal && (
         <PrintManifestModal
           isOpen={showPrintModal}

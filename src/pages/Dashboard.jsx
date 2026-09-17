@@ -12,6 +12,7 @@ import {
   Plus,
   Loader2,
   PackageCheck,
+  Layers,
 } from 'lucide-react';
 import { fetchOrders, formatLKR } from '../services/dbService';
 import { supabase } from '../supabase';
@@ -34,7 +35,7 @@ function relativeTime(iso) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Payment classification helper                                      */
+/*  Payment classification — buyer's turn?                             */
 /* ------------------------------------------------------------------ */
 function isAwaitingBuyer(ord) {
   if (ord.status !== 'received') return false;
@@ -43,11 +44,6 @@ function isAwaitingBuyer(ord) {
   if (isBank && ord.payment_status === 'Awaiting Payment') return true;
   if (isCOD && !ord.buyer_confirmed) return true;
   return false;
-}
-
-function isReadyToPack(ord) {
-  if (ord.status !== 'received') return false;
-  return !isAwaitingBuyer(ord);
 }
 
 const STATUS_PILL = {
@@ -131,27 +127,26 @@ export default function Dashboard({ seller }) {
   }, [seller?.id]);
 
   /* ---------------------------------------------------------------- */
-  /*  Action-based pipeline buckets (all-time, not timeframe)          */
+  /*  Pipeline buckets — MUST match Orders page tab definitions        */
   /* ---------------------------------------------------------------- */
   const pipeline = useMemo(() => {
-    let toPack = 0;
-    let toDispatch = 0;
+    let toProcess = 0;
+    let packed = 0;
     let inTransit = 0;
-    let deliveredAllTime = 0;
+    let delivered = 0;
 
     orders.forEach((o) => {
-      if (o.status === 'packed') { toDispatch += 1; return; }
+      if (o.status === 'received') { toProcess += 1; return; }
+      if (o.status === 'packed') { packed += 1; return; }
       if (o.status === 'dispatched') { inTransit += 1; return; }
-      if (o.status === 'delivered') { deliveredAllTime += 1; return; }
-      if (o.status === 'received' && isReadyToPack(o)) { toPack += 1; }
-      // received + awaiting buyer — not in pipeline buckets
+      if (o.status === 'delivered') { delivered += 1; }
     });
 
-    return { toPack, toDispatch, inTransit, deliveredAllTime };
+    return { toProcess, packed, inTransit, delivered };
   }, [orders]);
 
   /* ---------------------------------------------------------------- */
-  /*  Waiting on buyer count (metric + banner)                         */
+  /*  Waiting on buyer — subset of "To Process"                        */
   /* ---------------------------------------------------------------- */
   const waitingOnBuyer = useMemo(
     () => orders.filter(isAwaitingBuyer).length,
@@ -204,33 +199,33 @@ export default function Dashboard({ seller }) {
 
   const pipelineItems = [
     {
-      id: 'to_pack',
-      label: 'To Pack',
-      count: pipeline.toPack,
+      id: 'received',
+      label: 'To Process',
+      count: pipeline.toProcess,
+      icon: Layers,
+      color: 'text-amber-600',
+      bg: 'bg-amber-50',
+    },
+    {
+      id: 'packed',
+      label: 'Packed',
+      count: pipeline.packed,
       icon: Package,
       color: 'text-blue-600',
       bg: 'bg-blue-50',
     },
     {
-      id: 'to_dispatch',
-      label: 'To Dispatch',
-      count: pipeline.toDispatch,
-      icon: PackageCheck,
+      id: 'dispatched',
+      label: 'In Transit',
+      count: pipeline.inTransit,
+      icon: Truck,
       color: 'text-purple-600',
       bg: 'bg-purple-50',
     },
     {
-      id: 'in_transit',
-      label: 'In Transit',
-      count: pipeline.inTransit,
-      icon: Truck,
-      color: 'text-indigo-600',
-      bg: 'bg-indigo-50',
-    },
-    {
       id: 'delivered',
       label: 'Delivered',
-      count: pipeline.deliveredAllTime,
+      count: pipeline.delivered,
       icon: CheckCircle2,
       color: 'text-[#006241]',
       bg: 'bg-emerald-50',
@@ -240,7 +235,7 @@ export default function Dashboard({ seller }) {
   return (
     <div className="space-y-4">
       {/* ============================================================ */}
-      {/*  WELCOME CARD + TIMEFRAME TOGGLE                              */}
+      {/*  WELCOME CARD                                                 */}
       {/* ============================================================ */}
       <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-5 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -286,7 +281,7 @@ export default function Dashboard({ seller }) {
       </div>
 
       {/* ============================================================ */}
-      {/*  PIPELINE SNAPSHOT — seller's daily workflow buckets           */}
+      {/*  PIPELINE SNAPSHOT — matches Orders tabs exactly                */}
       {/* ============================================================ */}
       <button
         onClick={() => navigate('/orders')}
@@ -363,7 +358,7 @@ export default function Dashboard({ seller }) {
           </div>
         </div>
 
-        {/* Waiting on Buyer — full width on mobile */}
+        {/* Waiting on Buyer */}
         <div className={`col-span-2 md:col-span-1 bg-white border rounded-[24px] p-4 shadow-xs space-y-1 ${
           waitingOnBuyer > 0 ? 'border-amber-200' : 'border-[#E7EBE7]'
         }`}>
@@ -463,7 +458,6 @@ export default function Dashboard({ seller }) {
               const pill = STATUS_PILL[o.status] || STATUS_PILL.received;
               const awaitingBuyer = isAwaitingBuyer(o);
 
-              // Friendly status label
               let statusLabel = o.status;
               if (o.status === 'received' && awaitingBuyer) statusLabel = 'Unverified';
               else if (o.status === 'received') statusLabel = 'Ready';
