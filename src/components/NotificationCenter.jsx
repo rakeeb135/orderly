@@ -16,19 +16,35 @@ import {
   markAllNotificationsAsRead,
 } from '../services/dbService';
 
+/* ------------------------------------------------------------------ */
+/*  Relative timestamp helper ("2m ago", "3h ago", "Yesterday")        */
+/* ------------------------------------------------------------------ */
+function relativeTime(iso) {
+  if (!iso) return '';
+  const then = new Date(iso).getTime();
+  const now = Date.now();
+  const diff = Math.max(0, Math.floor((now - then) / 1000));
+
+  if (diff < 45) return 'just now';
+  if (diff < 60 * 60) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 60 * 60 * 24) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 60 * 60 * 48) return 'Yesterday';
+  if (diff < 60 * 60 * 24 * 7) return `${Math.floor(diff / (3600 * 24))}d ago`;
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
 export default function NotificationCenter({ sellerId }) {
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [filter, setFilter] = useState('all');
-  const [panelPos, setPanelPos] = useState(null);
 
   const buttonRef = useRef(null);
   const panelRef = useRef(null);
   const audioCtxRef = useRef(null);
 
   /* ---------------------------------------------------------------- */
-  /*  Audio chime — single shared AudioContext, resumed on demand     */
+  /*  Audio chime                                                      */
   /* ---------------------------------------------------------------- */
   const playChime = useCallback(() => {
     try {
@@ -55,7 +71,7 @@ export default function NotificationCenter({ sellerId }) {
       osc.start(now);
       osc.stop(now + 0.3);
     } catch {
-      /* autoplay policy / AudioContext unavailable — silently ignore */
+      /* autoplay policy / unavailable */
     }
   }, []);
 
@@ -66,17 +82,22 @@ export default function NotificationCenter({ sellerId }) {
     if (!sellerId) return;
     let isMounted = true;
 
-    (async () => {
+    const load = async () => {
       try {
         const data = await fetchNotifications(sellerId);
         if (isMounted) setNotifications(data || []);
       } catch (err) {
         console.error('[NotificationCenter] initial fetch failed:', err);
       }
-    })();
+    };
 
-    // Unique channel name per mount — prevents StrictMode double-mount
-    // from reusing an already-subscribed channel.
+    load();
+
+    // Refetch when tab regains focus (catch anything missed)
+    const onFocus = () => { load(); };
+    window.addEventListener('focus', onFocus);
+
+    // Unique channel name — StrictMode double-mount safe
     const channelName = `seller-alerts-${sellerId}-${Date.now()}-${Math.random()
       .toString(36)
       .slice(2, 8)}`;
@@ -108,35 +129,10 @@ export default function NotificationCenter({ sellerId }) {
 
     return () => {
       isMounted = false;
+      window.removeEventListener('focus', onFocus);
       supabase.removeChannel(channel);
     };
   }, [sellerId, playChime]);
-
-  /* ---------------------------------------------------------------- */
-  /*  Compute desktop panel position (anchored to the bell)            */
-  /* ---------------------------------------------------------------- */
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const compute = () => {
-      if (window.innerWidth < 768) {
-        setPanelPos(null); // mobile uses bottom-sheet layout
-        return;
-      }
-      const rect = buttonRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const PANEL_W = 384; // w-96
-      const left = Math.min(
-        Math.max(12, rect.left),
-        Math.max(12, window.innerWidth - PANEL_W - 12)
-      );
-      setPanelPos({ top: rect.bottom + 10, left });
-    };
-
-    compute();
-    window.addEventListener('resize', compute);
-    return () => window.removeEventListener('resize', compute);
-  }, [isOpen]);
 
   /* ---------------------------------------------------------------- */
   /*  Close on outside click / Escape                                   */
@@ -162,13 +158,11 @@ export default function NotificationCenter({ sellerId }) {
   }, [isOpen]);
 
   /* ---------------------------------------------------------------- */
-  /*  Derived state and actions                                         */
+  /*  Derived + actions                                                 */
   /* ---------------------------------------------------------------- */
   const unreadCount = notifications.filter((n) => !n.is_read).length;
   const filteredNotifs =
-    filter === 'unread'
-      ? notifications.filter((n) => !n.is_read)
-      : notifications;
+    filter === 'unread' ? notifications.filter((n) => !n.is_read) : notifications;
 
   const handleItemClick = async (notif) => {
     if (!notif.is_read) {
@@ -206,9 +200,6 @@ export default function NotificationCenter({ sellerId }) {
     }
   };
 
-  /* ---------------------------------------------------------------- */
-  /*  Render                                                            */
-  /* ---------------------------------------------------------------- */
   return (
     <>
       {/* Bell trigger */}
@@ -227,7 +218,7 @@ export default function NotificationCenter({ sellerId }) {
         )}
       </button>
 
-      {/* Portaled panel — escapes sidebar clipping completely */}
+      {/* Portaled panel */}
       {isOpen &&
         createPortal(
           <>
@@ -239,10 +230,14 @@ export default function NotificationCenter({ sellerId }) {
 
             <div
               ref={panelRef}
-              className="fixed z-[90] bg-white border border-[#E4E4E7] rounded-[24px] shadow-2xl overflow-hidden flex flex-col inset-x-3 bottom-4 max-h-[80vh] md:inset-auto md:w-96 md:max-h-[520px]"
-              style={
-                panelPos ? { top: panelPos.top, left: panelPos.left } : undefined
-              }
+              className={[
+                // shared
+                'fixed z-[90] bg-white border border-[#E4E4E7] shadow-2xl overflow-hidden flex flex-col',
+                // mobile: bottom sheet
+                'inset-x-3 bottom-4 max-h-[80vh] rounded-[24px]',
+                // desktop: top-right dropdown
+                'md:inset-auto md:top-[76px] md:right-6 md:w-96 md:max-h-[560px] md:rounded-[20px]',
+              ].join(' ')}
             >
               {/* Header */}
               <div className="p-4 border-b border-[#E4E4E7] flex justify-between items-center bg-[#FAFAF9] shrink-0">
@@ -308,12 +303,8 @@ export default function NotificationCenter({ sellerId }) {
                     <div className="w-10 h-10 rounded-2xl bg-stone-100 flex items-center justify-center mx-auto text-stone-400">
                       <Bell className="w-5 h-5" />
                     </div>
-                    <p className="font-bold text-xs text-stone-800">
-                      All caught up
-                    </p>
-                    <p className="text-[11px]">
-                      No alerts waiting for your review.
-                    </p>
+                    <p className="font-bold text-xs text-stone-800">All caught up</p>
+                    <p className="text-[11px]">No alerts waiting for your review.</p>
                   </div>
                 ) : (
                   filteredNotifs.map((notif) => (
@@ -334,17 +325,17 @@ export default function NotificationCenter({ sellerId }) {
                           <div className="font-black text-xs truncate text-[#18181B]">
                             {notif.title}
                           </div>
-                          <span className="text-[10px] text-stone-400 shrink-0 font-mono">
-                            {new Date(notif.created_at).toLocaleTimeString([], {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
+                          <span className="text-[10px] text-stone-400 shrink-0 font-medium">
+                            {relativeTime(notif.created_at)}
                           </span>
                         </div>
                         <div className="text-[11px] text-[#52525B] leading-snug line-clamp-2">
                           {notif.message}
                         </div>
                       </div>
+                      {!notif.is_read && (
+                        <span className="w-2 h-2 rounded-full bg-[#006241] shrink-0 mt-1.5" />
+                      )}
                     </div>
                   ))
                 )}
