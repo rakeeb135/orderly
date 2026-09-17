@@ -11,7 +11,7 @@ import {
   AlertCircle,
   Plus,
   Loader2,
-  ClipboardList,
+  PackageCheck,
 } from 'lucide-react';
 import { fetchOrders, formatLKR } from '../services/dbService';
 import { supabase } from '../supabase';
@@ -31,6 +31,23 @@ function relativeTime(iso) {
   if (diff < 60 * 60 * 48) return 'yesterday';
   if (diff < 60 * 60 * 24 * 7) return `${Math.floor(diff / (3600 * 24))}d ago`;
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+/* ------------------------------------------------------------------ */
+/*  Payment classification helper                                      */
+/* ------------------------------------------------------------------ */
+function isAwaitingBuyer(ord) {
+  if (ord.status !== 'received') return false;
+  const isCOD = !ord.payment_method || ord.payment_method === 'COD';
+  const isBank = ord.payment_method === 'Bank';
+  if (isBank && ord.payment_status === 'Awaiting Payment') return true;
+  if (isCOD && !ord.buyer_confirmed) return true;
+  return false;
+}
+
+function isReadyToPack(ord) {
+  if (ord.status !== 'received') return false;
+  return !isAwaitingBuyer(ord);
 }
 
 const STATUS_PILL = {
@@ -114,18 +131,35 @@ export default function Dashboard({ seller }) {
   }, [seller?.id]);
 
   /* ---------------------------------------------------------------- */
-  /*  Pipeline snapshot — always uses ALL orders, not timeframe        */
+  /*  Action-based pipeline buckets (all-time, not timeframe)          */
   /* ---------------------------------------------------------------- */
   const pipeline = useMemo(() => {
-    const map = { received: 0, packed: 0, dispatched: 0, delivered: 0 };
+    let toPack = 0;
+    let toDispatch = 0;
+    let inTransit = 0;
+    let deliveredAllTime = 0;
+
     orders.forEach((o) => {
-      if (map[o.status] !== undefined) map[o.status] += 1;
+      if (o.status === 'packed') { toDispatch += 1; return; }
+      if (o.status === 'dispatched') { inTransit += 1; return; }
+      if (o.status === 'delivered') { deliveredAllTime += 1; return; }
+      if (o.status === 'received' && isReadyToPack(o)) { toPack += 1; }
+      // received + awaiting buyer — not in pipeline buckets
     });
-    return map;
+
+    return { toPack, toDispatch, inTransit, deliveredAllTime };
   }, [orders]);
 
   /* ---------------------------------------------------------------- */
-  /*  Timeframe-filtered metrics                                       */
+  /*  Waiting on buyer count (metric + banner)                         */
+  /* ---------------------------------------------------------------- */
+  const waitingOnBuyer = useMemo(
+    () => orders.filter(isAwaitingBuyer).length,
+    [orders]
+  );
+
+  /* ---------------------------------------------------------------- */
+  /*  Timeframe-filtered sales metrics                                 */
   /* ---------------------------------------------------------------- */
   const { totalSales, orderCount, avgOrder } = useMemo(() => {
     const now = new Date();
@@ -155,11 +189,6 @@ export default function Dashboard({ seller }) {
     return { totalSales: sales, orderCount: count, avgOrder: avg };
   }, [orders, timeframe]);
 
-  const unconfirmedOrders = useMemo(
-    () => orders.filter((o) => o.status === 'received' && !o.buyer_confirmed),
-    [orders]
-  );
-
   const recentOrders = useMemo(() => orders.slice(0, 5), [orders]);
 
   /* ---------------------------------------------------------------- */
@@ -174,10 +203,38 @@ export default function Dashboard({ seller }) {
   }
 
   const pipelineItems = [
-    { id: 'received', label: 'To Confirm', count: pipeline.received, icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
-    { id: 'packed', label: 'Packed', count: pipeline.packed, icon: Package, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { id: 'dispatched', label: 'In Transit', count: pipeline.dispatched, icon: Truck, color: 'text-purple-600', bg: 'bg-purple-50' },
-    { id: 'delivered', label: 'Delivered', count: pipeline.delivered, icon: CheckCircle2, color: 'text-[#006241]', bg: 'bg-emerald-50' },
+    {
+      id: 'to_pack',
+      label: 'To Pack',
+      count: pipeline.toPack,
+      icon: Package,
+      color: 'text-blue-600',
+      bg: 'bg-blue-50',
+    },
+    {
+      id: 'to_dispatch',
+      label: 'To Dispatch',
+      count: pipeline.toDispatch,
+      icon: PackageCheck,
+      color: 'text-purple-600',
+      bg: 'bg-purple-50',
+    },
+    {
+      id: 'in_transit',
+      label: 'In Transit',
+      count: pipeline.inTransit,
+      icon: Truck,
+      color: 'text-indigo-600',
+      bg: 'bg-indigo-50',
+    },
+    {
+      id: 'delivered',
+      label: 'Delivered',
+      count: pipeline.deliveredAllTime,
+      icon: CheckCircle2,
+      color: 'text-[#006241]',
+      bg: 'bg-emerald-50',
+    },
   ];
 
   return (
@@ -229,7 +286,7 @@ export default function Dashboard({ seller }) {
       </div>
 
       {/* ============================================================ */}
-      {/*  PIPELINE SNAPSHOT                                            */}
+      {/*  PIPELINE SNAPSHOT — seller's daily workflow buckets           */}
       {/* ============================================================ */}
       <button
         onClick={() => navigate('/orders')}
@@ -237,7 +294,7 @@ export default function Dashboard({ seller }) {
       >
         <div className="flex items-center justify-between px-5 pt-4 pb-2">
           <span className="text-[10px] font-bold uppercase tracking-wider text-[#5A655D] flex items-center gap-1.5">
-            <ClipboardList className="w-3.5 h-3.5" /> Order Pipeline
+            <PackageCheck className="w-3.5 h-3.5" /> Order Pipeline
           </span>
           <span className="text-[10px] font-bold text-[#006241] flex items-center gap-1 group-hover:underline">
             View all <ArrowRight className="w-3 h-3" />
@@ -257,7 +314,7 @@ export default function Dashboard({ seller }) {
                 <div className="text-base font-black text-[#111813] leading-none">
                   {item.count}
                 </div>
-                <div className="text-[10px] font-bold text-[#5A655D] uppercase tracking-wider leading-none">
+                <div className="text-[10px] font-bold text-[#5A655D] uppercase tracking-wider leading-none text-center">
                   {item.label}
                 </div>
               </div>
@@ -306,31 +363,31 @@ export default function Dashboard({ seller }) {
           </div>
         </div>
 
-        {/* Awaiting Confirmation — full width on mobile */}
+        {/* Waiting on Buyer — full width on mobile */}
         <div className={`col-span-2 md:col-span-1 bg-white border rounded-[24px] p-4 shadow-xs space-y-1 ${
-          unconfirmedOrders.length > 0 ? 'border-amber-200' : 'border-[#E7EBE7]'
+          waitingOnBuyer > 0 ? 'border-amber-200' : 'border-[#E7EBE7]'
         }`}>
           <div className="flex items-center gap-2">
             <div className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 ${
-              unconfirmedOrders.length > 0 ? 'bg-amber-100' : 'bg-stone-100'
+              waitingOnBuyer > 0 ? 'bg-amber-100' : 'bg-stone-100'
             }`}>
-              <AlertCircle className={`w-3.5 h-3.5 ${
-                unconfirmedOrders.length > 0 ? 'text-amber-700' : 'text-stone-400'
+              <Clock className={`w-3.5 h-3.5 ${
+                waitingOnBuyer > 0 ? 'text-amber-700' : 'text-stone-400'
               }`} />
             </div>
             <span className="text-[10px] font-bold uppercase tracking-wider text-[#5A655D]">
-              Awaiting Confirmation
+              Waiting on Buyer
             </span>
           </div>
           <div className={`text-xl font-black truncate pt-1 ${
-            unconfirmedOrders.length > 0 ? 'text-amber-600' : 'text-[#111813]'
+            waitingOnBuyer > 0 ? 'text-amber-600' : 'text-[#111813]'
           }`}>
-            {unconfirmedOrders.length}
+            {waitingOnBuyer}
           </div>
           <div className="text-[10px] text-[#5A655D]">
-            {unconfirmedOrders.length > 0
-              ? 'Buyers haven\'t confirmed yet'
-              : 'All orders confirmed'}
+            {waitingOnBuyer > 0
+              ? 'Not yet confirmed or paid'
+              : 'Nothing pending'}
           </div>
         </div>
       </div>
@@ -338,16 +395,16 @@ export default function Dashboard({ seller }) {
       {/* ============================================================ */}
       {/*  ATTENTION BANNER                                             */}
       {/* ============================================================ */}
-      {unconfirmedOrders.length > 0 && (
+      {waitingOnBuyer > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-[20px] p-3.5 flex items-center justify-between gap-3 shadow-xs">
           <div className="flex items-center gap-2.5 min-w-0">
             <AlertCircle className="w-4 h-4 text-amber-700 shrink-0" />
             <div className="min-w-0">
               <div className="font-bold text-xs text-amber-900 truncate">
-                {unconfirmedOrders.length} order{unconfirmedOrders.length > 1 ? 's' : ''} need verification
+                {waitingOnBuyer} order{waitingOnBuyer > 1 ? 's' : ''} waiting on buyer
               </div>
               <div className="text-[10px] text-amber-700 truncate">
-                Send WhatsApp confirmation links to lock them in
+                Send WhatsApp reminders to unblock them
               </div>
             </div>
           </div>
@@ -404,7 +461,13 @@ export default function Dashboard({ seller }) {
           <div className="divide-y divide-[#E7EBE7]">
             {recentOrders.map((o) => {
               const pill = STATUS_PILL[o.status] || STATUS_PILL.received;
-              const cleanPhone = o.customer_phone?.replace(/[^0-9]/g, '').replace(/^0/, '94');
+              const awaitingBuyer = isAwaitingBuyer(o);
+
+              // Friendly status label
+              let statusLabel = o.status;
+              if (o.status === 'received' && awaitingBuyer) statusLabel = 'Unverified';
+              else if (o.status === 'received') statusLabel = 'Ready';
+              else if (o.status === 'canceled') statusLabel = 'Returned';
 
               return (
                 <Link
@@ -418,7 +481,7 @@ export default function Dashboard({ seller }) {
                         #{o.order_code || o.id.slice(0, 4)}
                       </span>
                       <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider border ${pill}`}>
-                        {o.status === 'received' && !o.buyer_confirmed ? 'Unverified' : o.status}
+                        {statusLabel}
                       </span>
                       <span className="text-[10px] text-stone-400 font-medium">
                         {relativeTime(o.created_at)}
