@@ -222,7 +222,6 @@ const VariantsSection = memo(function VariantsSection({
 
       {hasVariants && (
         <div className="space-y-4 pt-3 border-t border-[#E7EBE7]">
-          {/* Colors */}
           <div className="space-y-2">
             <span className="block text-[11px] font-bold text-[#5A655D] uppercase tracking-wider">
               Colors
@@ -288,7 +287,6 @@ const VariantsSection = memo(function VariantsSection({
             )}
           </div>
 
-          {/* Sizes */}
           <div className="space-y-2 pt-2 border-t border-[#E7EBE7]">
             <div className="flex justify-between items-center">
               <span className="text-[11px] font-bold text-[#5A655D] uppercase tracking-wider">
@@ -674,7 +672,6 @@ const ProductModal = memo(function ProductModal({
             />
           </div>
 
-          {/* Free Delivery toggle */}
           <div className="border border-[#E7EBE7] rounded-2xl p-3.5 bg-stone-50/50">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -727,16 +724,27 @@ export default function Products({ seller, products = [], setProducts }) {
   const [restockCount, setRestockCount] = useState('');
   const [copiedId, setCopiedId] = useState(null);
 
+  // Safe localStorage read — never crash on corrupt data
   const [savedCategories, setSavedCategories] = useState(() => {
-    const local = localStorage.getItem(`ordy_cats_${seller?.id}`);
-    return local ? JSON.parse(local) : DEFAULT_CATEGORIES;
+    try {
+      const local = localStorage.getItem(`ordy_cats_${seller?.id}`);
+      if (!local) return DEFAULT_CATEGORIES;
+      const parsed = JSON.parse(local);
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_CATEGORIES;
+    } catch {
+      return DEFAULT_CATEGORIES;
+    }
   });
 
   const handleSaveCategory = useCallback((newCat) => {
     setSavedCategories((prev) => {
       if (!prev.includes(newCat)) {
         const next = [newCat, ...prev];
-        localStorage.setItem(`ordy_cats_${seller?.id}`, JSON.stringify(next));
+        try {
+          localStorage.setItem(`ordy_cats_${seller?.id}`, JSON.stringify(next));
+        } catch {
+          /* non-blocking */
+        }
         return next;
       }
       return prev;
@@ -792,22 +800,22 @@ export default function Products({ seller, products = [], setProducts }) {
       return;
     }
 
-    const shareTitle = product.title;
-    const shareText = `${product.title} — ${formatLKR(product.price)}\n\nOrder here: ${link}`;
+    // The share text carries the link; no separate url field
+    // (prevents the share sheet from appending the link twice).
+    const shareMessage = `${product.title} — ${formatLKR(product.price)}\n\nOrder here: ${link}`;
 
-    // Prefer native share sheet (WhatsApp, IG DM, email, etc. on mobile)
+    // Prefer native share sheet
     if (typeof navigator !== 'undefined' && navigator.share) {
       try {
         await navigator.share({
-          title: shareTitle,
-          text: shareText,
-          url: link,
+          title: product.title,
+          text: shareMessage,
         });
         return;
       } catch (err) {
-        // User cancelled — no toast, just silently return
+        // User cancelled — respect it, no fallback
         if (err?.name === 'AbortError') return;
-        // Any other error → fall through to clipboard
+        // Any other failure (e.g. no share targets) — fall through to clipboard
       }
     }
 
@@ -840,12 +848,15 @@ export default function Products({ seller, products = [], setProducts }) {
         </button>
       </div>
 
-      {/* Hint about the new share behavior */}
+      {/* Hint banner */}
       {products.length > 0 && (
         <div className="bg-[#E8F0E9] border border-[#C2D6C5] rounded-2xl p-3 text-[11px] text-[#006241] flex items-start gap-2">
           <Share2 className="w-4 h-4 shrink-0 mt-0.5" />
           <div className="leading-relaxed">
-            <strong>Tip:</strong> Tap <Share2 className="w-3 h-3 inline" /> on any product to get its **direct order link**. Paste it in your Instagram bio, WhatsApp status, or TikTok description — buyers tap once and go straight to that product's order page.
+            <strong>Tip:</strong> Tap the <Share2 className="w-3 h-3 inline" /> icon on any product
+            to get its <strong>direct order link</strong>. Paste it in your Instagram bio,
+            WhatsApp status, or TikTok description — buyers tap once and go straight to
+            that product's order page.
           </div>
         </div>
       )}
