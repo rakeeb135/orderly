@@ -34,10 +34,15 @@ const DEFAULT_CATEGORIES = ['Apparel', 'Watches', 'Footwear', 'Accessories', 'Be
 /* ------------------------------------------------------------------ */
 /*  Build the direct order link for a product                          */
 /* ------------------------------------------------------------------ */
-function buildProductLink(handle, productId) {
-  if (!handle || !productId) return '';
+function buildProductLink(handle, product) {
+  if (!handle || !product) return '';
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  return `${origin}/${handle}?p=${productId}`;
+  // Prefer the clean slug URL. Fall back to UUID query param for
+  // legacy products that somehow have no slug.
+  if (product.slug) {
+    return `${origin}/${handle}/p/${product.slug}`;
+  }
+  return `${origin}/${handle}?p=${product.id}`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -819,7 +824,7 @@ export default function Products({ seller, products = [], setProducts }) {
   /*  - Desktop (Windows / macOS / Linux): direct clipboard copy       */
   /* ---------------------------------------------------------------- */
   const handleShareProduct = async (product) => {
-    const link = buildProductLink(seller?.handle, product.id);
+    const link = buildProductLink(seller?.handle, product);
     if (!link) {
       notify('Store handle not set. Configure it in Settings.', 'error');
       return;

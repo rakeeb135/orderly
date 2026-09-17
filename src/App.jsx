@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useOutletContext } from 'react-router-dom';
 import { Loader2, PhoneCall, ShieldAlert } from 'lucide-react';
 import { supabase } from './supabase';
 import { fetchProducts } from './services/dbService';
@@ -15,6 +15,7 @@ import Settings from './pages/Settings';
 import Storefront from './pages/Storefront';
 import OrderTracker from './pages/OrderTracker';
 import AdminPortal from './pages/AdminPortal';
+import QuickOrder from './pages/QuickOrder';
 
 function ProtectedShell() {
   const [seller, setSeller] = useState(null);
@@ -159,14 +160,20 @@ export default function App() {
           <Route path="/settings" element={<SettingsWrapper />} />
         </Route>
 
+        {/* ---- Public buyer-facing routes (order matters!) ---- */}
+        {/* 1. Specific: /handle/p/slug  →  QuickOrder */}
+        <Route path="/:handle/p/:slug" element={<QuickOrder />} />
+
+        {/* 2. Catch-all: /handle  →  Storefront */}
         <Route path="/:handle" element={<Storefront />} />
       </Routes>
     </BrowserRouter>
   );
 }
 
-import { useOutletContext } from 'react-router-dom';
-
+/* ------------------------------------------------------------------ */
+/*  Auth-gated wrappers                                                */
+/* ------------------------------------------------------------------ */
 function DashboardWrapper() {
   const { seller } = useOutletContext();
   return <Dashboard seller={seller} />;
