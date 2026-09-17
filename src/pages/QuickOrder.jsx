@@ -11,6 +11,7 @@ import {
   Landmark,
   AlertCircle,
   CheckCircle2,
+  Trash2,
 } from 'lucide-react';
 import {
   fetchSellerByHandle,
@@ -43,12 +44,16 @@ export default function QuickOrder() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
-  // Variant + qty
+  // Currently-configured variant + quantity (for the "Add to Order" button)
   const [chosenSize, setChosenSize] = useState(null);
   const [chosenColor, setChosenColor] = useState(null);
   const [chosenQty, setChosenQty] = useState(1);
   const [variantError, setVariantError] = useState('');
+  const [justAdded, setJustAdded] = useState(false);
   const [activePhotoIdx, setActivePhotoIdx] = useState(0);
+
+  // Multi-selection cart — buyer can add multiple size/color combinations
+  const [selections, setSelections] = useState([]);
 
   // Form fields
   const [name, setName] = useState('');
@@ -85,7 +90,6 @@ export default function QuickOrder() {
         }
         setProduct(p);
 
-        // Pre-select single-value variants
         const variants = p.variants || [];
         const sizes = Array.from(new Set(variants.map((v) => v.size).filter(Boolean)));
         const colors = Array.from(new Set(variants.map((v) => v.color).filter(Boolean)));
@@ -148,31 +152,112 @@ export default function QuickOrder() {
   }, [product]);
 
   /* ---------------------------------------------------------------- */
+  /*  Auto-clear "just added" indicator                                */
+  /* ---------------------------------------------------------------- */
+  useEffect(() => {
+    if (!justAdded) return;
+    const t = setTimeout(() => setJustAdded(false), 1800);
+    return () => clearTimeout(t);
+  }, [justAdded]);
+
+  /* ---------------------------------------------------------------- */
+  /*  Add current variant/qty to the selections cart                   */
+  /* ---------------------------------------------------------------- */
+  const handleAddSelection = () => {
+    if (!product) return;
+
+    if (modalSizes.length > 0 && !chosenSize) {
+      setVariantError('Please select a size first.');
+      return;
+    }
+    if (modalColors.length > 0 && !chosenColor) {
+      setVariantError('Please select a color first.');
+      return;
+    }
+    setVariantError('');
+
+    let variantTitle = '';
+    if (chosenSize && chosenColor) variantTitle = ` (${chosenSize} / ${chosenColor})`;
+    else if (chosenSize) variantTitle = ` (${chosenSize})`;
+    else if (chosenColor) variantTitle = ` (${chosenColor})`;
+
+    const qtyToAdd = Math.max(1, Number(chosenQty) || 1);
+    const itemKey = `${product.id}-${chosenSize || ''}-${chosenColor || ''}`;
+
+    setSelections((prev) => {
+      const idx = prev.findIndex((s) => s.itemKey === itemKey);
+      if (idx > -1) {
+        const next = [...prev];
+        next[idx] = { ...next[idx], quantity: next[idx].quantity + qtyToAdd };
+        return next;
+      }
+      return [
+        ...prev,
+        {
+          itemKey,
+          id: product.id,
+          title: `${product.title}${variantTitle}`,
+          price: Number(product.price),
+          quantity: qtyToAdd,
+          size: chosenSize,
+          color: chosenColor,
+          free_delivery: Boolean(product.free_delivery),
+        },
+      ];
+    });
+
+    setChosenQty(1);
+    setJustAdded(true);
+  };
+
+  const handleRemoveSelection = (itemKey) => {
+    setSelections((prev) => prev.filter((s) => s.itemKey !== itemKey));
+  };
+
+  const handleUpdateSelectionQty = (itemKey, delta) => {
+    setSelections((prev) =>
+      prev
+        .map((s) => {
+          if (s.itemKey !== itemKey) return s;
+          const nextQty = s.quantity + delta;
+          return nextQty > 0 ? { ...s, quantity: nextQty } : null;
+        })
+        .filter(Boolean)
+    );
+  };
+
+  /* ---------------------------------------------------------------- */
   /*  Delivery fee                                                     */
   /* ---------------------------------------------------------------- */
-  const isFreeDelivery = Boolean(product?.free_delivery);
+  const selectionsSubtotal = selections.reduce(
+    (sum, s) => sum + Number(s.price) * s.quantity,
+    0
+  );
+
+  const allItemsFreeDelivery =
+    selections.length > 0 && selections.every((s) => s.free_delivery);
 
   let calculatedDeliveryFee = 0;
   let deliveryFeeStatus = 'pending';
 
-  if (!product) {
+  if (selections.length === 0) {
     calculatedDeliveryFee = 0;
-  } else if (isFreeDelivery) {
+  } else if (allItemsFreeDelivery) {
     calculatedDeliveryFee = 0;
     deliveryFeeStatus = 'free';
   } else if (!district) {
     calculatedDeliveryFee = 0;
     deliveryFeeStatus = 'pending';
   } else {
-    const isLocal = district.toLowerCase() === (seller?.home_district || 'colombo').toLowerCase();
+    const isLocal =
+      district.toLowerCase() === (seller?.home_district || 'colombo').toLowerCase();
     calculatedDeliveryFee = isLocal
-      ? (Number(seller?.delivery_fee) || 350)
-      : (Number(seller?.outstation_delivery_fee) || 450);
+      ? Number(seller?.delivery_fee) || 350
+      : Number(seller?.outstation_delivery_fee) || 450;
     deliveryFeeStatus = 'calculated';
   }
 
-  const subtotal = product ? Number(product.price) * chosenQty : 0;
-  const grandTotal = subtotal + calculatedDeliveryFee;
+  const grandTotal = selectionsSubtotal + calculatedDeliveryFee;
 
   /* ---------------------------------------------------------------- */
   /*  Place order                                                      */
@@ -181,39 +266,44 @@ export default function QuickOrder() {
     e.preventDefault();
     setFormError('');
 
-    if (!product) return;
+    if (!product || !seller) return;
 
-    if (modalSizes.length > 0 && !chosenSize) {
-      setVariantError('Please select a size.');
+    if (selections.length === 0) {
+      setFormError('Add at least one item to your order first.');
       return;
     }
-    if (modalColors.length > 0 && !chosenColor) {
-      setVariantError('Please select a color.');
+    if (!name.trim()) {
+      setFormError('Please enter your name.');
       return;
     }
-    setVariantError('');
-
-    if (!name.trim()) { setFormError('Please enter your name.'); return; }
-    if (!phone.trim()) { setFormError('Please enter your phone number.'); return; }
-    if (!district) { setFormError('Please select your district.'); return; }
-    if (!city.trim()) { setFormError('Please enter your city / town.'); return; }
-    if (!address.trim()) { setFormError('Please enter your delivery address.'); return; }
+    if (!phone.trim()) {
+      setFormError('Please enter your phone number.');
+      return;
+    }
+    if (!district) {
+      setFormError('Please select your district.');
+      return;
+    }
+    if (!city.trim()) {
+      setFormError('Please enter your city / town.');
+      return;
+    }
+    if (!address.trim()) {
+      setFormError('Please enter your delivery address.');
+      return;
+    }
 
     setPlacing(true);
 
     try {
-      let variantTitle = '';
-      if (chosenSize && chosenColor) variantTitle = ` (${chosenSize} / ${chosenColor})`;
-      else if (chosenSize) variantTitle = ` (${chosenSize})`;
-      else if (chosenColor) variantTitle = ` (${chosenColor})`;
-
-      const orderItem = {
-        id: product.id,
-        title: `${product.title}${variantTitle}`,
-        price: Number(product.price),
-        quantity: chosenQty,
-        free_delivery: Boolean(product.free_delivery),
-      };
+      // Strip UI-only fields before sending to backend
+      const orderItems = selections.map((s) => ({
+        id: s.id,
+        title: s.title,
+        price: Number(s.price),
+        quantity: Number(s.quantity),
+        free_delivery: Boolean(s.free_delivery),
+      }));
 
       const order = await createOrder({
         sellerId: seller.id,
@@ -223,7 +313,7 @@ export default function QuickOrder() {
         deliveryAddress: address.trim(),
         city: city.trim(),
         district: district.trim(),
-        items: [orderItem],
+        items: orderItems,
         deliveryFee: calculatedDeliveryFee,
         paymentMethod,
         source: 'quick_order',
@@ -247,9 +337,10 @@ export default function QuickOrder() {
 
       setPlacedOrder(order);
 
-      const pushMessage = order.payment_method === 'Bank'
-        ? `${order.customer_name} placed a Bank Transfer quick order for ${formatLKR(order.total_amount)} — awaiting payment`
-        : `${order.customer_name} placed a quick order for ${formatLKR(order.total_amount)}`;
+      const pushMessage =
+        order.payment_method === 'Bank'
+          ? `${order.customer_name} placed a Bank Transfer quick order for ${formatLKR(order.total_amount)} — awaiting payment`
+          : `${order.customer_name} placed a quick order for ${formatLKR(order.total_amount)}`;
 
       triggerPushNotification(seller.id, {
         title: `New Order #${order.order_code || order.id.slice(0, 4)}`,
@@ -377,11 +468,17 @@ export default function QuickOrder() {
                   {seller.bank_details.branch && (
                     <div><strong>Branch:</strong> {seller.bank_details.branch}</div>
                   )}
-                  <div className="pt-1"><strong>Reference:</strong> #{placedOrder.order_code || placedOrder.id.slice(0, 4)}</div>
+                  <div className="pt-1">
+                    <strong>Reference:</strong> #{placedOrder.order_code || placedOrder.id.slice(0, 4)}
+                  </div>
                 </div>
                 {cleanWaNumber && (
                   <a
-                    href={`https://wa.me/${cleanWaNumber}?text=${encodeURIComponent(`Hi ${seller.shop_name}! I've transferred ${formatLKR(placedOrder.total_amount)} for order #${placedOrder.order_code || placedOrder.id.slice(0, 4)}. Here's my slip:`)}`}
+                    href={`https://wa.me/${cleanWaNumber}?text=${encodeURIComponent(
+                      `Hi ${seller.shop_name}! I've transferred ${formatLKR(
+                        placedOrder.total_amount
+                      )} for order #${placedOrder.order_code || placedOrder.id.slice(0, 4)}. Here's my slip:`
+                    )}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="block w-full mt-2 py-2.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white font-bold rounded-xl text-[11px] text-center active:scale-95 transition"
@@ -461,7 +558,7 @@ export default function QuickOrder() {
               </div>
             )}
 
-            {isFreeDelivery && (
+            {product.free_delivery && (
               <div className="absolute top-3 left-3 bg-[#006241] text-white text-[10px] font-bold px-2.5 py-1 rounded-full shadow-sm">
                 Free Delivery
               </div>
@@ -526,108 +623,199 @@ export default function QuickOrder() {
           </div>
         </div>
 
-        {/* Variants + Quantity */}
-        {(modalSizes.length > 0 || modalColors.length > 0) && (
-          <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-5 shadow-xs space-y-4">
-            {modalColors.length > 0 && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-[#5A655D]">
-                    Color
-                  </span>
-                  {chosenColor && (
-                    <span className="text-[11px] font-bold text-[#006241]">{chosenColor}</span>
-                  )}
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {modalColors.map((col) => (
-                    <button
-                      key={col}
-                      type="button"
-                      onClick={() => { setChosenColor(col); setVariantError(''); }}
-                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition active:scale-95 ${
-                        chosenColor === col
-                          ? 'bg-[#006241] text-white border-[#006241]'
-                          : 'bg-stone-50 text-[#111813] border-[#E7EBE7] hover:border-stone-400'
-                      }`}
-                    >
-                      {col}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+        {/* Variant + Quantity + Add button */}
+        <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-5 shadow-xs space-y-4">
+          <div className="border-b border-[#E7EBE7] pb-3 -mx-1">
+            <h2 className="text-xs font-black uppercase tracking-wider text-[#111813]">
+              Configure Selection
+            </h2>
+            <p className="text-[10px] text-[#5A655D] mt-0.5">
+              Pick a size/color, set quantity, then add to order. Add more variants below.
+            </p>
+          </div>
 
-            {modalSizes.length > 0 && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-[#5A655D]">
-                    Size
-                  </span>
-                  {chosenSize && (
-                    <span className="text-[11px] font-bold text-[#006241]">{chosenSize}</span>
-                  )}
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {modalSizes.map((sz) => (
-                    <button
-                      key={sz}
-                      type="button"
-                      onClick={() => { setChosenSize(sz); setVariantError(''); }}
-                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition active:scale-95 ${
-                        chosenSize === sz
-                          ? 'bg-[#006241] text-white border-[#006241]'
-                          : 'bg-stone-50 text-[#111813] border-[#E7EBE7] hover:border-stone-400'
-                      }`}
-                    >
-                      {sz}
-                    </button>
-                  ))}
-                </div>
+          {modalColors.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#5A655D]">
+                  Color
+                </span>
+                {chosenColor && (
+                  <span className="text-[11px] font-bold text-[#006241]">{chosenColor}</span>
+                )}
               </div>
-            )}
+              <div className="flex flex-wrap gap-1.5">
+                {modalColors.map((col) => (
+                  <button
+                    key={col}
+                    type="button"
+                    onClick={() => {
+                      setChosenColor(col);
+                      setVariantError('');
+                    }}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition active:scale-95 ${
+                      chosenColor === col
+                        ? 'bg-[#006241] text-white border-[#006241]'
+                        : 'bg-stone-50 text-[#111813] border-[#E7EBE7] hover:border-stone-400'
+                    }`}
+                  >
+                    {col}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
-            {variantError && (
-              <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs px-3 py-2 rounded-xl flex items-center gap-1.5">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                <span>{variantError}</span>
+          {modalSizes.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#5A655D]">
+                  Size
+                </span>
+                {chosenSize && (
+                  <span className="text-[11px] font-bold text-[#006241]">{chosenSize}</span>
+                )}
               </div>
-            )}
+              <div className="flex flex-wrap gap-1.5">
+                {modalSizes.map((sz) => (
+                  <button
+                    key={sz}
+                    type="button"
+                    onClick={() => {
+                      setChosenSize(sz);
+                      setVariantError('');
+                    }}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition active:scale-95 ${
+                      chosenSize === sz
+                        ? 'bg-[#006241] text-white border-[#006241]'
+                        : 'bg-stone-50 text-[#111813] border-[#E7EBE7] hover:border-stone-400'
+                    }`}
+                  >
+                    {sz}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between pt-2 border-t border-[#E7EBE7]">
+            <div>
+              <div className="text-xs font-bold text-[#111813]">Quantity</div>
+              <div className="text-[10px] text-[#5A655D] mt-0.5">
+                {formatLKR(product.price)} each
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setChosenQty((q) => Math.max(1, q - 1))}
+                disabled={chosenQty <= 1}
+                className="w-9 h-9 rounded-xl bg-[#F4F6F4] border border-[#E7EBE7] flex items-center justify-center disabled:opacity-40 active:scale-95 transition"
+                aria-label="Decrease quantity"
+              >
+                <Minus className="w-3.5 h-3.5" />
+              </button>
+              <span className="w-8 text-center font-black text-base">{chosenQty}</span>
+              <button
+                type="button"
+                onClick={() => setChosenQty((q) => Math.min(99, q + 1))}
+                className="w-9 h-9 rounded-xl bg-[#F4F6F4] border border-[#E7EBE7] flex items-center justify-center active:scale-95 transition"
+                aria-label="Increase quantity"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {variantError && (
+            <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs px-3 py-2 rounded-xl flex items-center gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              <span>{variantError}</span>
+            </div>
+          )}
+
+          {justAdded && (
+            <div className="bg-[#E8F0E9] border border-[#C2D6C5] text-[#006241] text-xs font-bold px-3 py-2.5 rounded-2xl flex items-center justify-center gap-2">
+              <CheckCircle2 className="w-4 h-4" /> Added to order
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={handleAddSelection}
+            className="w-full py-3.5 bg-[#006241] hover:bg-[#004F34] text-white font-bold rounded-2xl text-sm active:scale-[0.98] transition shadow-sm flex items-center justify-center gap-2"
+          >
+            {selections.length === 0 ? 'Add to Order' : '+ Add Another Selection'} •{' '}
+            {formatLKR(Number(product.price) * chosenQty)}
+          </button>
+        </div>
+
+        {/* Selections cart */}
+        {selections.length > 0 && (
+          <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-5 shadow-xs space-y-3">
+            <div className="flex items-center justify-between border-b border-[#E7EBE7] pb-3">
+              <h2 className="text-xs font-black uppercase tracking-wider text-[#111813]">
+                Your Order ({selections.length} item{selections.length === 1 ? '' : 's'})
+              </h2>
+              <span className="text-xs font-black text-[#006241]">
+                {formatLKR(selectionsSubtotal)}
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              {selections.map((s) => (
+                <div
+                  key={s.itemKey}
+                  className="bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl p-3 flex items-center gap-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="font-bold text-xs text-[#111813] truncate">{s.title}</div>
+                    <div className="text-[10px] text-[#5A655D] font-mono mt-0.5">
+                      {formatLKR(s.price)} × {s.quantity} = {formatLKR(s.price * s.quantity)}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1 bg-white rounded-lg p-0.5 border border-[#E7EBE7] shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateSelectionQty(s.itemKey, -1)}
+                      className="w-6 h-6 rounded flex items-center justify-center text-[#5A655D] hover:bg-[#F4F6F4] active:scale-90 transition"
+                      aria-label="Decrease"
+                    >
+                      <Minus className="w-3 h-3" />
+                    </button>
+                    <span className="font-mono font-bold text-[11px] px-1 min-w-[14px] text-center">
+                      {s.quantity}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateSelectionQty(s.itemKey, 1)}
+                      className="w-6 h-6 rounded flex items-center justify-center text-[#5A655D] hover:bg-[#F4F6F4] active:scale-90 transition"
+                      aria-label="Increase"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveSelection(s.itemKey)}
+                    className="p-1.5 text-stone-400 hover:text-rose-600 active:scale-90 transition shrink-0"
+                    aria-label="Remove"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
-        {/* Quantity */}
-        <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-4 shadow-xs flex items-center justify-between">
-          <div>
-            <div className="text-xs font-bold text-[#111813]">Quantity</div>
-            <div className="text-[10px] text-[#5A655D] mt-0.5">
-              {formatLKR(product.price)} each
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setChosenQty((q) => Math.max(1, q - 1))}
-              disabled={chosenQty <= 1}
-              className="w-9 h-9 rounded-xl bg-[#F4F6F4] border border-[#E7EBE7] flex items-center justify-center disabled:opacity-40 active:scale-95 transition"
-              aria-label="Decrease quantity"
-            >
-              <Minus className="w-3.5 h-3.5" />
-            </button>
-            <span className="w-8 text-center font-black text-base">{chosenQty}</span>
-            <button
-              type="button"
-              onClick={() => setChosenQty((q) => Math.min(99, q + 1))}
-              className="w-9 h-9 rounded-xl bg-[#F4F6F4] border border-[#E7EBE7] flex items-center justify-center active:scale-95 transition"
-              aria-label="Increase quantity"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Order form */}
-        <form onSubmit={handlePlaceOrder} className="bg-white border border-[#E7EBE7] rounded-[24px] p-5 shadow-xs space-y-3">
+        {/* Delivery form */}
+        <form
+          onSubmit={handlePlaceOrder}
+          className="bg-white border border-[#E7EBE7] rounded-[24px] p-5 shadow-xs space-y-3"
+        >
           <div className="border-b border-[#E7EBE7] pb-3 -mx-1">
             <h2 className="text-xs font-black uppercase tracking-wider text-[#111813]">
               Delivery Details
@@ -696,7 +884,9 @@ export default function QuickOrder() {
               >
                 <option value="">Select</option>
                 {SL_DISTRICTS.map((d) => (
-                  <option key={d} value={d}>{d}</option>
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
                 ))}
               </select>
             </div>
@@ -766,15 +956,18 @@ export default function QuickOrder() {
               <p className="text-[10px] text-[#5A655D] leading-relaxed">
                 {paymentMethod === 'COD'
                   ? 'Pay cash to the rider when your order arrives.'
-                  : 'You\'ll receive the seller\'s bank details after placing the order.'}
+                  : "You'll receive the seller's bank details after placing the order."}
               </p>
             </div>
           )}
 
           <div className="pt-3 border-t border-[#E7EBE7] space-y-1.5 text-xs">
             <div className="flex justify-between text-[#5A655D]">
-              <span>Subtotal</span>
-              <span className="font-semibold">{formatLKR(subtotal)}</span>
+              <span>
+                Subtotal ({selections.reduce((n, s) => n + s.quantity, 0)} item
+                {selections.reduce((n, s) => n + s.quantity, 0) === 1 ? '' : 's'})
+              </span>
+              <span className="font-semibold">{formatLKR(selectionsSubtotal)}</span>
             </div>
             <div className="flex justify-between text-[#5A655D]">
               <span>Delivery Fee</span>
@@ -803,11 +996,13 @@ export default function QuickOrder() {
 
           <button
             type="submit"
-            disabled={placing}
+            disabled={placing || selections.length === 0}
             className="w-full py-4 bg-[#006241] hover:bg-[#004F34] text-white font-bold rounded-2xl text-sm active:scale-[0.98] transition shadow-sm flex items-center justify-center gap-2 disabled:opacity-50 mt-2"
           >
             {placing ? (
               <Loader2 className="w-4 h-4 animate-spin" />
+            ) : selections.length === 0 ? (
+              'Add an item to continue'
             ) : (
               <>Place Order • {formatLKR(grandTotal)}</>
             )}
@@ -837,7 +1032,9 @@ export default function QuickOrder() {
         {cleanWaNumber && (
           <div className="text-center pb-4">
             <a
-              href={`https://wa.me/${cleanWaNumber}?text=${encodeURIComponent(`Hi ${seller.shop_name}, I have a question about "${product.title}".`)}`}
+              href={`https://wa.me/${cleanWaNumber}?text=${encodeURIComponent(
+                `Hi ${seller.shop_name}, I have a question about "${product.title}".`
+              )}`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#006241] hover:underline"

@@ -87,6 +87,7 @@ export default function Storefront() {
   const [chosenColor, setChosenColor] = useState(null);
   const [chosenQty, setChosenQty] = useState(1);
   const [variantError, setVariantError] = useState('');
+  const [justAdded, setJustAdded] = useState(false);
 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -237,6 +238,7 @@ export default function Storefront() {
     setSelectedProductView(product);
     setActivePhotoIdx(0);
     setVariantError('');
+    setJustAdded(false);
     setChosenQty(1);
 
     const variants = product.variants || [];
@@ -298,7 +300,12 @@ export default function Storefront() {
       ];
     });
 
-    closeProductModal();
+    // Keep the modal open so the buyer can add another variant.
+    // Show a small "Added" confirmation, clear after ~1.8s.
+    setJustAdded(true);
+    setVariantError('');
+    setChosenQty(1);
+    setTimeout(() => setJustAdded(false), 1800);
   };
 
   /* ---------------------------------------------------------------- */
@@ -886,12 +893,26 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
               </div>
             )}
 
+            {justAdded && (
+              <div className="bg-[#E8F0E9] border border-[#C2D6C5] text-[#006241] text-xs font-bold px-3 py-2.5 rounded-2xl flex items-center justify-center gap-2 animate-in fade-in">
+                <CheckCircle2 className="w-4 h-4" /> Added to bag
+              </div>
+            )}
+
             <button
               type="button"
               onClick={addToCartFromModal}
               className="w-full py-3.5 bg-[#006241] hover:bg-[#004F34] text-white font-bold rounded-2xl text-xs active:scale-95 transition shadow-xs mt-2 flex items-center justify-center gap-2"
             >
               Add {chosenQty} to Bag • {formatLKR(Number(selectedProductView.price) * chosenQty)}
+            </button>
+
+            <button
+              type="button"
+              onClick={closeProductModal}
+              className="w-full py-2.5 text-[#5A655D] hover:text-black text-xs font-semibold transition"
+            >
+              Done — view bag
             </button>
           </div>
         </div>
