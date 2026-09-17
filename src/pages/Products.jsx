@@ -1,18 +1,19 @@
 import React, { useState, useRef, memo, useCallback, useMemo } from 'react';
-import { 
-  Plus, 
-  RefreshCw, 
-  Trash2, 
-  X, 
-  Loader2, 
-  Share2, 
-  Tag, 
-  Upload, 
-  ImageIcon, 
-  Layers, 
+import {
+  Plus,
+  RefreshCw,
+  Trash2,
+  X,
+  Loader2,
+  Share2,
+  Tag,
+  Upload,
+  ImageIcon,
+  Layers,
   DollarSign,
   Pencil,
-  Truck
+  Truck,
+  Check
 } from 'lucide-react';
 import { createProduct, updateProduct, updateProductStock, deleteProduct, formatLKR } from '../services/dbService';
 import { uploadStoreAsset } from '../services/storageService';
@@ -30,13 +31,24 @@ const ALL_PRESET_SIZES_SET = new Set(Object.values(PRESET_SIZE_GROUPS).flat());
 const PRESET_COLORS_SET = new Set(PRESET_COLOR_NAMES);
 const DEFAULT_CATEGORIES = ['Apparel', 'Watches', 'Footwear', 'Accessories', 'Beauty', 'General'];
 
-// 1. ISOLATED PHOTO TRAY
-const PhotoTray = memo(function PhotoTray({ 
-  photoUrls, 
-  onPhotoSelect, 
-  onRemovePhoto, 
-  onMakeMain, 
-  uploading 
+/* ------------------------------------------------------------------ */
+/*  Build the direct order link for a product                          */
+/* ------------------------------------------------------------------ */
+function buildProductLink(handle, productId) {
+  if (!handle || !productId) return '';
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  return `${origin}/${handle}?p=${productId}`;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Photo tray                                                         */
+/* ------------------------------------------------------------------ */
+const PhotoTray = memo(function PhotoTray({
+  photoUrls,
+  onPhotoSelect,
+  onRemovePhoto,
+  onMakeMain,
+  uploading
 }) {
   const fileInputRef = useRef(null);
 
@@ -52,8 +64,8 @@ const PhotoTray = memo(function PhotoTray({
 
       <div className="grid grid-cols-4 gap-2">
         {photoUrls.map((url, index) => (
-          <div 
-            key={url} 
+          <div
+            key={url}
             className="relative aspect-square rounded-xl bg-stone-100 border border-[#E7EBE7] overflow-hidden cursor-pointer"
             onClick={() => onMakeMain(index)}
             title="Click to set as Cover"
@@ -105,11 +117,13 @@ const PhotoTray = memo(function PhotoTray({
   );
 });
 
-// 2. ISOLATED CATEGORY SELECTOR
-const CategorySelector = memo(function CategorySelector({ 
-  category, 
-  onChangeCategory, 
-  savedCategories 
+/* ------------------------------------------------------------------ */
+/*  Category selector                                                  */
+/* ------------------------------------------------------------------ */
+const CategorySelector = memo(function CategorySelector({
+  category,
+  onChangeCategory,
+  savedCategories
 }) {
   return (
     <div className="space-y-1.5">
@@ -121,7 +135,7 @@ const CategorySelector = memo(function CategorySelector({
         placeholder="Select pill or type..."
         className="w-full px-3.5 py-2 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl font-semibold"
       />
-      
+
       <div className="flex flex-wrap gap-1 pt-1">
         {savedCategories.map((cat) => (
           <button
@@ -142,7 +156,9 @@ const CategorySelector = memo(function CategorySelector({
   );
 });
 
-// 3. ISOLATED VARIANTS SECTION
+/* ------------------------------------------------------------------ */
+/*  Variants section                                                   */
+/* ------------------------------------------------------------------ */
 const VariantsSection = memo(function VariantsSection({
   hasVariants,
   onToggleVariants,
@@ -360,7 +376,9 @@ const VariantsSection = memo(function VariantsSection({
   );
 });
 
-// 4. MAIN MODAL (Zero blur, full responsiveness)
+/* ------------------------------------------------------------------ */
+/*  Product modal                                                      */
+/* ------------------------------------------------------------------ */
 const ProductModal = memo(function ProductModal({
   isOpen,
   onClose,
@@ -373,7 +391,6 @@ const ProductModal = memo(function ProductModal({
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  // Core Form State
   const [title, setTitle] = useState(editingProduct?.title || '');
   const [description, setDescription] = useState(editingProduct?.description || '');
   const [price, setPrice] = useState(editingProduct?.price?.toString() || '');
@@ -384,13 +401,12 @@ const ProductModal = memo(function ProductModal({
   const [photoUrls, setPhotoUrls] = useState(editingProduct?.photo_urls || []);
   const [freeDelivery, setFreeDelivery] = useState(Boolean(editingProduct?.free_delivery));
 
-  // Variants State
   const initialVariants = editingProduct?.variants || [];
   const [hasVariants, setHasVariants] = useState(initialVariants.length > 0);
-  const [selectedSizes, setSelectedSizes] = useState(() => 
+  const [selectedSizes, setSelectedSizes] = useState(() =>
     Array.from(new Set(initialVariants.map((v) => v.size).filter(Boolean)))
   );
-  const [selectedColors, setSelectedColors] = useState(() => 
+  const [selectedColors, setSelectedColors] = useState(() =>
     Array.from(new Set(initialVariants.map((v) => v.color).filter(Boolean)))
   );
 
@@ -632,6 +648,10 @@ const ProductModal = memo(function ProductModal({
               </div>
             </div>
 
+            <p className="text-[10px] text-[#5A655D] leading-relaxed">
+              Compare-at price shows as a strikethrough "was" price on the storefront. Cost is private — used for profit calc only.
+            </p>
+
             {profit !== null && (
               <div className="pt-2 border-t border-[#E7EBE7] flex justify-between items-center text-[11px]">
                 <span className="font-semibold text-[#5A655D]">Calculated Profit:</span>
@@ -654,14 +674,14 @@ const ProductModal = memo(function ProductModal({
             />
           </div>
 
-          {/* FREE DELIVERY PROMOTION TOGGLE */}
+          {/* Free Delivery toggle */}
           <div className="border border-[#E7EBE7] rounded-2xl p-3.5 bg-stone-50/50">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Truck className="w-4 h-4 text-[#006241]" />
                 <div>
                   <div className="font-bold text-xs">Free Islandwide Delivery</div>
-                  <div className="text-[10px] text-[#5A655D]">Orders with this item ship free of charge</div>
+                  <div className="text-[10px] text-[#5A655D]">If checked, orders with this item ship free</div>
                 </div>
               </div>
               <input
@@ -697,15 +717,18 @@ const ProductModal = memo(function ProductModal({
   );
 });
 
-// 5. MAIN CATALOG PAGE
+/* ------------------------------------------------------------------ */
+/*  Main catalog page                                                  */
+/* ------------------------------------------------------------------ */
 export default function Products({ seller, products = [], setProducts }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [restockProduct, setRestockProduct] = useState(null);
   const [restockCount, setRestockCount] = useState('');
+  const [copiedId, setCopiedId] = useState(null);
 
   const [savedCategories, setSavedCategories] = useState(() => {
-    const local = localStorage.getItem(`orderly_cats_${seller?.id}`);
+    const local = localStorage.getItem(`ordy_cats_${seller?.id}`);
     return local ? JSON.parse(local) : DEFAULT_CATEGORIES;
   });
 
@@ -713,7 +736,7 @@ export default function Products({ seller, products = [], setProducts }) {
     setSavedCategories((prev) => {
       if (!prev.includes(newCat)) {
         const next = [newCat, ...prev];
-        localStorage.setItem(`orderly_cats_${seller?.id}`, JSON.stringify(next));
+        localStorage.setItem(`ordy_cats_${seller?.id}`, JSON.stringify(next));
         return next;
       }
       return prev;
@@ -759,18 +782,55 @@ export default function Products({ seller, products = [], setProducts }) {
     }
   };
 
-  const copyStorefrontLink = () => {
-    const url = `${window.location.origin}/${seller?.handle}`;
-    navigator.clipboard.writeText(url);
-    notify('Store link copied!');
+  /* ---------------------------------------------------------------- */
+  /*  Per-product share — native share sheet or clipboard copy          */
+  /* ---------------------------------------------------------------- */
+  const handleShareProduct = async (product) => {
+    const link = buildProductLink(seller?.handle, product.id);
+    if (!link) {
+      notify('Store handle not set. Configure it in Settings.', 'error');
+      return;
+    }
+
+    const shareTitle = product.title;
+    const shareText = `${product.title} — ${formatLKR(product.price)}\n\nOrder here: ${link}`;
+
+    // Prefer native share sheet (WhatsApp, IG DM, email, etc. on mobile)
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share({
+          title: shareTitle,
+          text: shareText,
+          url: link,
+        });
+        return;
+      } catch (err) {
+        // User cancelled — no toast, just silently return
+        if (err?.name === 'AbortError') return;
+        // Any other error → fall through to clipboard
+      }
+    }
+
+    // Fallback: copy to clipboard
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopiedId(product.id);
+      notify('Product order link copied!');
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      window.prompt('Copy this product order link:', link);
+    }
   };
 
   return (
     <div className="space-y-4 pb-12">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white border border-[#E7EBE7] rounded-[28px] p-5 shadow-xs">
         <div>
           <h1 className="text-lg font-black text-[#111813]">Products Catalog</h1>
-          <p className="text-xs text-[#5A655D]">{products.length} live item{products.length === 1 ? '' : 's'}</p>
+          <p className="text-xs text-[#5A655D]">
+            {products.length} live item{products.length === 1 ? '' : 's'}
+          </p>
         </div>
         <button
           onClick={() => { setEditingProduct(null); setModalOpen(true); }}
@@ -780,6 +840,17 @@ export default function Products({ seller, products = [], setProducts }) {
         </button>
       </div>
 
+      {/* Hint about the new share behavior */}
+      {products.length > 0 && (
+        <div className="bg-[#E8F0E9] border border-[#C2D6C5] rounded-2xl p-3 text-[11px] text-[#006241] flex items-start gap-2">
+          <Share2 className="w-4 h-4 shrink-0 mt-0.5" />
+          <div className="leading-relaxed">
+            <strong>Tip:</strong> Tap <Share2 className="w-3 h-3 inline" /> on any product to get its **direct order link**. Paste it in your Instagram bio, WhatsApp status, or TikTok description — buyers tap once and go straight to that product's order page.
+          </div>
+        </div>
+      )}
+
+      {/* Product list */}
       <div className="space-y-2">
         {products.length === 0 ? (
           <div className="bg-white border border-[#E7EBE7] rounded-[28px] p-10 text-center text-xs text-[#5A655D]">
@@ -789,6 +860,7 @@ export default function Products({ seller, products = [], setProducts }) {
           products.map((p) => {
             const hasImgs = p.photo_urls && p.photo_urls.length > 0;
             const hasVar = p.variants && p.variants.length > 0;
+            const isCopied = copiedId === p.id;
 
             return (
               <div
@@ -834,11 +906,15 @@ export default function Products({ seller, products = [], setProducts }) {
 
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button
-                    onClick={copyStorefrontLink}
-                    className="p-2 text-[#5A655D] hover:text-[#006241] bg-[#F4F6F4] rounded-xl transition active:scale-95"
-                    title="Share Store Link"
+                    onClick={() => handleShareProduct(p)}
+                    className={`p-2 rounded-xl transition active:scale-95 ${
+                      isCopied
+                        ? 'bg-[#E8F0E9] text-[#006241]'
+                        : 'text-[#5A655D] hover:text-[#006241] bg-[#F4F6F4]'
+                    }`}
+                    title={isCopied ? 'Link copied!' : 'Share product order link'}
                   >
-                    <Share2 className="w-3.5 h-3.5" />
+                    {isCopied ? <Check className="w-3.5 h-3.5" /> : <Share2 className="w-3.5 h-3.5" />}
                   </button>
 
                   <button
