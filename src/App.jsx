@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useOutletContext } from 'react-router-dom';
 import { Loader2, PhoneCall, ShieldAlert } from 'lucide-react';
 import { supabase } from './supabase';
-import { fetchProducts } from './services/dbService';
+import { fetchProducts, fetchCurrentSeller } from './services/dbService';
 
 import Layout from './components/Layout';
 import Auth from './pages/Auth';
@@ -23,30 +23,30 @@ function ProtectedShell() {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  const sellerId = localStorage.getItem('ordy_active_seller_id');
-
-  const loadData = async () => {
-    if (!sellerId) {
+  const loadSeller = async (authUserId) => {
+    if (!authUserId) {
+      setSeller(null);
+      setProducts([]);
       setLoading(false);
       return;
     }
-    try {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from('sellers')
-        .select('*')
-        .eq('id', sellerId)
-        .single();
 
-      if (error || !data) {
-        localStorage.removeItem('ordy_active_seller_id');
-        localStorage.removeItem('ordy_active_handle');
-        navigate('/login');
+    try {
+      const sellerRow = await fetchCurrentSeller(authUserId);
+
+      if (!sellerRow) {
+        // Auth user exists but no seller row.
+        // This can happen if signup half-failed. Sign out and let them retry.
+        console.warn('[ProtectedShell] No seller row found for auth user', authUserId);
+        await supabase.auth.signOut();
+        setSeller(null);
+        setProducts([]);
+        setLoading(false);
         return;
       }
 
-      setSeller(data);
-      const prods = await fetchProducts(data.id);
+      setSeller(sellerRow);
+      const prods = await fetchProducts(sellerRow.id);
       setProducts(prods);
     } catch (err) {
       console.error('Failed to load seller data:', err);
@@ -56,8 +56,26 @@ function ProtectedShell() {
   };
 
   useEffect(() => {
-    loadData();
-  }, [sellerId]);
+    let isMounted = true;
+
+    // 1. Read the initial session once
+    supabase.auth.getSession().then(({ data }) => {
+      if (!isMounted) return;
+      loadSeller(data?.session?.user?.id);
+    });
+
+    // 2. Subscribe to auth changes (login, logout, token refresh)
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!isMounted) return;
+      loadSeller(session?.user?.id);
+    });
+
+    return () => {
+      isMounted = false;
+      sub?.subscription?.unsubscribe?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (loading) {
     return (
@@ -67,7 +85,7 @@ function ProtectedShell() {
     );
   }
 
-  if (!sellerId) {
+  if (!seller) {
     return <Navigate to="/login" replace />;
   }
 
@@ -94,12 +112,12 @@ function ProtectedShell() {
           </div>
 
           <div className="bg-[#F4F6F4] border border-[#E7EBE7] rounded-2xl p-4 text-left text-xs space-y-2">
-            <div className="font-bold text-[#111813] border-b pb-1">Renew Access — Rs. 1,500 / 30 Days</div>
+            <div className="font-bold text-[#111813] border-b pb-1">Renew Access — Rs. 2,990 / 30 Days</div>
             <div className="text-[11px] text-[#5A655D] space-y-1">
               <div>Bank: <strong>Commercial Bank of Ceylon</strong></div>
               <div>Account Name: <strong>M.T.M Rakeeb</strong></div>
-              <div>Account No: <strong>8000123456</strong></div>
-              <div>Branch: <strong>Kandy Branch</strong></div>
+              <div>Account No: <strong>8012055155</strong></div>
+              <div>Branch: <strong>Kandy</strong></div>
             </div>
           </div>
 
@@ -113,8 +131,8 @@ function ProtectedShell() {
           </a>
 
           <button
-            onClick={() => {
-              localStorage.removeItem('ordy_active_seller_id');
+            onClick={async () => {
+              await supabase.auth.signOut();
               navigate('/login');
             }}
             className="text-xs font-semibold text-[#5A655D] hover:underline"
@@ -160,11 +178,8 @@ export default function App() {
           <Route path="/settings" element={<SettingsWrapper />} />
         </Route>
 
-        {/* ---- Public buyer-facing routes (order matters!) ---- */}
-        {/* 1. Specific: /handle/p/slug  →  QuickOrder */}
+        {/* Public buyer-facing routes (order matters!) */}
         <Route path="/:handle/p/:slug" element={<QuickOrder />} />
-
-        {/* 2. Catch-all: /handle  →  Storefront */}
         <Route path="/:handle" element={<Storefront />} />
       </Routes>
     </BrowserRouter>

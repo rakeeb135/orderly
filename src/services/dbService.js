@@ -82,27 +82,19 @@ export async function markAllNotificationsAsRead(sellerId) {
 // SELLERS & AUTH
 // ----------------------------------------------------
 
-export async function authenticateSeller(email, password) {
-  const cleanEmail = email.trim().toLowerCase();
-  
+export async function fetchCurrentSeller(authUserId) {
+  if (!authUserId) return null;
   const { data, error } = await supabase
     .from('sellers')
     .select('*')
-    .eq('email', cleanEmail)
-    .single();
+    .eq('auth_user_id', authUserId)
+    .maybeSingle();
 
-  if (error || !data) {
-    throw new Error('Seller profile not found. Verify email or create an account.');
-  }
-
-  if (data.password_hash && password && data.password_hash !== password.trim()) {
-    throw new Error('Incorrect password.');
-  }
-
+  if (error) throw error;
   return data;
 }
 
-export async function createSeller({ shopName, handle, email, password = '', whatsappNumber }) {
+export async function createSeller({ authUserId, shopName, handle, email, whatsappNumber }) {
   const cleanHandle = handle.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '');
   const cleanPhone = normalizeSLPhone(whatsappNumber);
 
@@ -113,19 +105,22 @@ export async function createSeller({ shopName, handle, email, password = '', wha
   const { data, error } = await supabase
     .from('sellers')
     .insert([{
+      auth_user_id: authUserId,
       shop_name: shopName.trim(),
       handle: cleanHandle,
       email: email.trim().toLowerCase(),
-      password_hash: password ? password.trim() : '',
       whatsapp_number: cleanPhone,
       subscription_status: 'trial',
-      subscription_expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString()
+      subscription_expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+      next_order_number: 1,
     }])
     .select()
     .single();
 
   if (error) {
-    if (error.code === '23505') throw new Error('Shop handle or email is already taken.');
+    if (error.code === '23505') {
+      throw new Error('Shop handle is already taken. Try a different one.');
+    }
     throw error;
   }
   return data;

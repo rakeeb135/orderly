@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, AlertCircle } from 'lucide-react';
-import { authenticateSeller, createSeller } from '../services/dbService';
+import { supabase } from '../supabase';
+import { createSeller } from '../services/dbService';
+import { normalizeSLPhone, isValidSLPhone } from '../utils/phone';
 
 export default function Auth() {
   const [isRegistering, setIsRegistering] = useState(false);
@@ -14,16 +16,35 @@ export default function Auth() {
   const [errorMsg, setErrorMsg] = useState('');
   const navigate = useNavigate();
 
+  // If already logged in, redirect to dashboard
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (data?.session) {
+        navigate('/dashboard', { replace: true });
+      }
+    });
+  }, [navigate]);
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setErrorMsg('');
     setLoading(true);
 
     try {
-      const seller = await authenticateSeller(email, password);
-      localStorage.setItem('ordy_active_seller_id', seller.id);
-      localStorage.setItem('ordy_active_handle', seller.handle);
-      navigate(seller.is_super_admin ? '/admin' : '/dashboard');
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password: password,
+      });
+
+      if (error) {
+        if (error.message?.toLowerCase().includes('invalid login')) {
+          throw new Error('Incorrect email or password.');
+        }
+        throw new Error(error.message || 'Login failed.');
+      }
+
+      // Session created. ProtectedShell will pick it up via onAuthStateChange.
+      navigate('/dashboard');
     } catch (err) {
       setErrorMsg(err.message || 'Login failed.');
     } finally {
@@ -37,17 +58,59 @@ export default function Auth() {
     setLoading(true);
 
     try {
-      const newSeller = await createSeller({
-        shopName,
-        handle,
-        email,
-        password,
-        whatsappNumber: phone
+      const cleanEmail = email.trim().toLowerCase();
+      const cleanHandle = handle.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '');
+      const cleanPhone = normalizeSLPhone(phone);
+
+      if (!isValidSLPhone(cleanPhone)) {
+        throw new Error('Please enter a valid 10-digit Sri Lankan phone number.');
+      }
+
+      // 1. Create the auth user account
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password: password,
       });
-      localStorage.setItem('ordy_active_seller_id', newSeller.id);
-      localStorage.setItem('ordy_active_handle', newSeller.handle);
+
+      if (authError) {
+        if (authError.message?.toLowerCase().includes('already')) {
+          throw new Error('This email is already registered. Try logging in instead.');
+        }
+        throw new Error(authError.message || 'Could not create account.');
+      }
+
+      if (!authData?.user) {
+        throw new Error('Could not create account. Try again.');
+      }
+
+      // 2. Create the seller row linked to the new auth user
+      await createSeller({
+        authUserId: authData.user.id,
+        shopName,
+        handle: cleanHandle,
+        email: cleanEmail,
+        whatsappNumber: cleanPhone,
+      });
+
+      // If email confirmation is required, there's no session yet
+      if (!authData.session) {
+        setErrorMsg('Check your email to confirm your account, then log in.');
+        setIsRegistering(false);
+        return;
+      }
+
+      // Session exists — user is logged in
       navigate('/dashboard');
     } catch (err) {
+      // If auth user was created but seller row failed, clean up the auth user
+      // so they can try again with the same email
+      if (err.message?.includes('Shop handle')) {
+        try {
+          await supabase.auth.signOut();
+        } catch {
+          /* best effort */
+        }
+      }
       setErrorMsg(err.message || 'Registration failed.');
     } finally {
       setLoading(false);
@@ -151,7 +214,8 @@ export default function Auth() {
                   autoComplete="new-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder="At least 6 characters"
+                  minLength={6}
                   required
                   className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl font-mono"
                 />
@@ -188,7 +252,7 @@ export default function Auth() {
                   autoComplete="username"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="owner@example.com"
+                  placeholder="yourshop@example.com"
                   required
                   className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl text-xs focus:bg-white"
                 />
