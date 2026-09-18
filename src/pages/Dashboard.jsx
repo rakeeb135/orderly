@@ -246,7 +246,7 @@ export default function Dashboard({ seller }) {
             <p className="text-xs text-[#5A655D] mt-0.5">
               Store live at{' '}
               <span className="font-mono font-bold text-[#006241]">
-                ordy.lk/{seller?.handle}
+                {window.location.host}/{seller?.handle}
               </span>
             </p>
           </div>

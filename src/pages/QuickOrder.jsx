@@ -530,7 +530,7 @@ export default function QuickOrder() {
                 {seller.shop_name}
               </div>
               <div className="text-[10px] text-[#5A655D] font-mono truncate">
-                ordy.lk/{seller.handle}
+                {window.location.host}/{seller.handle}
               </div>
             </div>
           </div>

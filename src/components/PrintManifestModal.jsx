@@ -136,7 +136,7 @@ export default function PrintManifestModal({ isOpen, onClose, orders = [], selle
                   <div className="border-b-2 border-black pb-2 flex justify-between items-start">
                     <div>
                       <div className="font-black text-sm uppercase tracking-wide">{seller?.shop_name || 'STORE'}</div>
-                      <div className="text-[10px] font-mono text-black">Store Link: ordy.lk/{seller?.handle}</div>
+                      <div className="text-[10px] font-mono text-black">Store Link: {window.location.host}/{seller?.handle}</div>
                       <div className="text-[10px] font-mono text-black">WhatsApp: {seller?.whatsapp_number}</div>
                     </div>
                     <div className="text-right">
@@ -211,7 +211,7 @@ export default function PrintManifestModal({ isOpen, onClose, orders = [], selle
                   <div className="border-b border-black pb-1 flex justify-between items-start">
                     <div>
                       <div className="font-black text-xs uppercase">{seller?.shop_name}</div>
-                      <div className="text-[9px] font-mono">ordy.lk/{seller?.handle} • {seller?.whatsapp_number}</div>
+                      <div className="text-[9px] font-mono">{window.location.host}/{seller?.handle} • {seller?.whatsapp_number}</div>
                     </div>
                     <div className="text-right">
                       <div className="font-black text-xs">#{ord.order_code || ord.id.slice(0, 4)}</div>
@@ -248,7 +248,7 @@ export default function PrintManifestModal({ isOpen, onClose, orders = [], selle
               <div className="border-b-2 border-black pb-2 flex justify-between items-start">
                 <div>
                   <div className="font-black text-base uppercase">{seller?.shop_name}</div>
-                  <div className="text-[10px] font-medium">Store Link: ordy.lk/{seller?.handle}</div>
+                  <div className="text-[10px] font-medium">Store Link: {window.location.host}/{seller?.handle}</div>
                   <div className="text-[10px] font-mono">Hotline: {seller?.whatsapp_number}</div>
                 </div>
                 <div className="text-right">

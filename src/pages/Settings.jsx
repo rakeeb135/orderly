@@ -332,7 +332,7 @@ export default function Settings({ seller, setSeller }) {
             </div>
             <div className="pt-6 min-w-0">
               <div className="font-extrabold text-sm text-[#111813] truncate">{shopName || 'Store Name'}</div>
-              <div className="text-[11px] text-[#006241] font-mono font-bold">ordy.lk/{handle || 'handle'}</div>
+              <div className="text-[11px] text-[#006241] font-mono font-bold">{window.location.host}/{handle || 'handle'}</div>
             </div>
           </div>
           {bio && <p className="text-xs text-[#5A655D] px-2 pt-1">{bio}</p>}
@@ -443,7 +443,7 @@ export default function Settings({ seller, setSeller }) {
           <div>
             <label className="block font-semibold mb-1">Store URL Handle *</label>
             <div className="flex items-center bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl px-3 py-2 text-xs">
-              <span className="text-[#5A655D] font-mono select-none">ordy.lk/</span>
+              <span className="text-[#5A655D] font-mono select-none">{window.location.host}/</span>
               <input
                 type="text"
                 value={handle}

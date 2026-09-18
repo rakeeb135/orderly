@@ -116,7 +116,7 @@ export default function Auth() {
               <div>
                 <label className="block font-semibold mb-1">Store Handle (URL) *</label>
                 <div className="flex items-center bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl px-3 py-2 text-xs">
-                  <span className="text-[#5A655D] font-mono select-none">ordy.lk/</span>
+                  <span className="text-[#5A655D] font-mono select-none">{window.location.host}/</span>
                   <input
                     type="text"
                     name="handle"
@@ -188,7 +188,7 @@ export default function Auth() {
                   autoComplete="username"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="yourshop@ordy.lk"
+                  placeholder="owner@example.com"
                   required
                   className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl text-xs focus:bg-white"
                 />
