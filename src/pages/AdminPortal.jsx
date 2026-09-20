@@ -10,8 +10,10 @@ import {
   Trash2,
   X
 } from 'lucide-react';
+import { supabase } from '../supabase';
 import {
   fetchAllSellersAdmin,
+  fetchCurrentSeller,
   extendSubscription,
   setCustomSubscriptionExpiry,
   toggleStoreActiveStatus,
@@ -22,6 +24,7 @@ import { notify } from '../components/Toast';
 
 export default function AdminPortal() {
   const [sellers, setSellers] = useState([]);
+  const [me, setMe] = useState(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [customDatePickerShop, setCustomDatePickerShop] = useState(null);
@@ -29,19 +32,32 @@ export default function AdminPortal() {
   const [updatingId, setUpdatingId] = useState(null);
   const navigate = useNavigate();
 
-  const activeSellerId = localStorage.getItem('ordy_active_seller_id');
-
   const loadAllShops = async () => {
     try {
       setLoading(true);
-      const data = await fetchAllSellersAdmin();
 
-      const me = data.find((s) => s.id === activeSellerId);
-      if (!me || !me.is_super_admin) {
+      // 1. Get the current auth session
+      const { data: sessionData } = await supabase.auth.getSession();
+      const authUserId = sessionData?.session?.user?.id;
+
+      if (!authUserId) {
+        navigate('/login');
+        return;
+      }
+
+      // 2. Fetch the current seller row
+      const meSeller = await fetchCurrentSeller(authUserId);
+
+      if (!meSeller || !meSeller.is_super_admin) {
         notify('Access denied: Super-Admin authorization required.', 'error');
         navigate('/dashboard');
         return;
       }
+
+      setMe(meSeller);
+
+      // 3. Fetch all sellers for the admin table
+      const data = await fetchAllSellersAdmin();
       setSellers(data);
     } catch (err) {
       notify(err.message || 'Failed to load shops', 'error');
@@ -52,7 +68,8 @@ export default function AdminPortal() {
 
   useEffect(() => {
     loadAllShops();
-  }, [activeSellerId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleQuickExtend = async (shop, days) => {
     setUpdatingId(shop.id);
@@ -102,7 +119,7 @@ export default function AdminPortal() {
   };
 
   const handleDeleteShop = async (shop) => {
-    if (shop.id === activeSellerId) {
+    if (!me || shop.id === me.id) {
       notify('Cannot delete your own super-admin account.', 'error');
       return;
     }
@@ -195,9 +212,9 @@ export default function AdminPortal() {
           </div>
 
           <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-4 space-y-1 shadow-xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#5A655D]">Subscription Fee</span>
-            <div className="text-2xl font-black text-[#111813]">Rs. 1,500</div>
-            <span className="text-[10px] text-[#5A655D]">Standard monthly fee</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#5A655D]">Standard Fee</span>
+            <div className="text-2xl font-black text-[#111813]">Rs. 2,990</div>
+            <span className="text-[10px] text-[#5A655D]">Monthly per shop</span>
           </div>
         </div>
 
@@ -318,7 +335,7 @@ export default function AdminPortal() {
                             <Power className="w-3.5 h-3.5" />
                           </button>
 
-                          {shop.id !== activeSellerId && (
+                          {(!me || shop.id !== me.id) && (
                             <button
                               onClick={() => handleDeleteShop(shop)}
                               disabled={isBusy}

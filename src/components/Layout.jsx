@@ -11,6 +11,8 @@ import {
   LogOut,
   Store
 } from 'lucide-react';
+import { supabase } from '../supabase';
+import POSModal from './POSModal';
 import POSModal from './POSModal';
 import Toast from './Toast';
 import NotificationCenter from './NotificationCenter';
@@ -41,9 +43,12 @@ export default function Layout({ seller, setSeller, products, setProducts, onOrd
   const navigate = useNavigate();
   const isDesktop = useIsDesktop();
 
-  const handleLogout = () => {
-    localStorage.removeItem('ordy_active_seller_id');
-    localStorage.removeItem('ordy_active_handle');
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
     navigate('/login');
   };
 

@@ -198,7 +198,6 @@ export default function Settings({ seller, setSeller }) {
       });
 
       setSeller(updated);
-      localStorage.setItem('ordy_active_handle', updated.handle);
       notify('Store brand and settings updated successfully!');
     } catch (err) {
       notify(err.message || 'Failed to save settings', 'error');
