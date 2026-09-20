@@ -88,7 +88,7 @@ export default function POSModal({ isOpen, onClose, seller, products = [], onOrd
     if (isValidSLPhone(cleaned)) {
       setLookingUpCustomer(true);
       try {
-        const found = await findCustomerByPhone(cleaned);
+        const found = await findCustomerByPhone(seller?.id, cleaned);
         if (found) {
           if (found.name) setName(found.name);
           if (found.secondary_phone) setSecondaryPhone(found.secondary_phone);

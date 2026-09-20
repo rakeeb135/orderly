@@ -257,17 +257,32 @@ export async function deleteProduct(productId) {
   if (error) throw error;
 }
 
+export async function fetchProductBySlug(sellerId, slug) {
+  if (!sellerId || !slug) return null;
+  const { data, error } = await supabase
+    .from('products')
+    .select('*')
+    .eq('seller_id', sellerId)
+    .eq('slug', slug)
+    .maybeSingle();
+
+  if (error) return null;
+  return data;
+}
+
 // ----------------------------------------------------
-// CUSTOMERS
+// CUSTOMERS (per-seller, scoped by seller_id)
 // ----------------------------------------------------
 
-export async function findCustomerByPhone(phone) {
+export async function findCustomerByPhone(sellerId, phone) {
+  if (!sellerId) return null;
   const cleanPhone = normalizeSLPhone(phone);
   if (!cleanPhone || cleanPhone.length < 9) return null;
 
   const { data, error } = await supabase
     .from('customers')
     .select('*')
+    .eq('seller_id', sellerId)
     .eq('phone', cleanPhone)
     .maybeSingle();
 
@@ -275,13 +290,14 @@ export async function findCustomerByPhone(phone) {
   return data;
 }
 
-export async function getOrCreateCustomer({ phone, secondaryPhone = '', name, city, deliveryAddress, district = '' }) {
+export async function getOrCreateCustomer({ sellerId, phone, secondaryPhone = '', name, city, deliveryAddress, district = '' }) {
   const cleanPhone = normalizeSLPhone(phone);
   const cleanSecondary = secondaryPhone ? normalizeSLPhone(secondaryPhone) : '';
 
   const { data: existing } = await supabase
     .from('customers')
     .select('*')
+    .eq('seller_id', sellerId)
     .eq('phone', cleanPhone)
     .maybeSingle();
 
@@ -304,6 +320,7 @@ export async function getOrCreateCustomer({ phone, secondaryPhone = '', name, ci
   const { data: created, error } = await supabase
     .from('customers')
     .insert([{
+      seller_id: sellerId,
       phone: cleanPhone,
       secondary_phone: cleanSecondary,
       name: name?.trim() || 'New Customer',
@@ -318,10 +335,12 @@ export async function getOrCreateCustomer({ phone, secondaryPhone = '', name, ci
   return created;
 }
 
-export async function fetchCustomers() {
+export async function fetchCustomers(sellerId) {
+  if (!sellerId) return [];
   const { data, error } = await supabase
     .from('customers')
     .select('*')
+    .eq('seller_id', sellerId)
     .order('total_orders', { ascending: false });
 
   if (error) throw error;
@@ -420,6 +439,7 @@ export async function createOrder({
   }
 
   const customer = await getOrCreateCustomer({
+    sellerId,
     phone: cleanPhone,
     secondaryPhone: cleanSecondary,
     name: customerName,
@@ -430,9 +450,8 @@ export async function createOrder({
 
   const subtotal = items.reduce((sum, item) => sum + (Number(item.price) * (Number(item.quantity) || 1)), 0);
   const totalAmount = subtotal + Number(deliveryFee);
-  // Atomically reserve the next sequential order code from the DB.
-  // This is race-safe: two simultaneous orders from the same seller
-  // can never receive the same code.
+
+  // Atomic order code allocation via SECURITY DEFINER RPC (works for anon buyers)
   const { data: codeResult, error: codeErr } = await supabase.rpc('next_order_code', {
     p_seller_id: sellerId,
   });
@@ -463,8 +482,8 @@ export async function createOrder({
       cod_balance: paymentMethod === 'COD' ? totalAmount : 0,
       payment_method: paymentMethod,
       payment_status: (paymentMethod === 'Bank' && source === 'storefront')
-      ? 'Awaiting Payment'
-      : (paymentMethod === 'Bank' ? 'Paid' : 'Unpaid'),
+        ? 'Awaiting Payment'
+        : (paymentMethod === 'Bank' ? 'Paid' : 'Unpaid'),
       status: 'received',
       source,
       buyer_confirmed: autoConfirm,
@@ -508,7 +527,6 @@ export async function createOrder({
     .update({ total_orders: (customer.total_orders || 0) + 1 })
     .eq('id', customer.id);
 
-  // Trigger New Order Notification
   await createNotification(sellerId, {
     title: `New Order #${order.order_code || order.id.slice(0, 4)}`,
     message: `${order.customer_name} placed an order for ${formatLKR(order.total_amount)} (${order.payment_method}).`,
@@ -558,7 +576,6 @@ export async function confirmOrderAsBuyer(orderId) {
 
   if (error) throw error;
 
-  // Trigger Customer Verification Notification
   if (data?.seller_id) {
     await createNotification(data.seller_id, {
       title: `Order Verified #${data.order_code || data.id.slice(0, 4)}`,
@@ -731,7 +748,6 @@ export async function subscribeToPush(sellerId, vapidPublicKey) {
     throw new Error('Push notifications are not supported on this device.');
   }
 
-  // Ask for permission
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') {
     throw new Error('Notification permission was denied.');
@@ -739,7 +755,6 @@ export async function subscribeToPush(sellerId, vapidPublicKey) {
 
   const registration = await navigator.serviceWorker.ready;
 
-  // Subscribe (reuses existing subscription if present)
   let subscription = await registration.pushManager.getSubscription();
   if (!subscription) {
     subscription = await registration.pushManager.subscribe({
@@ -748,7 +763,6 @@ export async function subscribeToPush(sellerId, vapidPublicKey) {
     });
   }
 
-  // Save to DB (endpoint is UNIQUE, so upsert on conflict)
   const subJson = subscription.toJSON();
   const { error } = await supabase
     .from('push_subscriptions')
@@ -794,7 +808,6 @@ export async function triggerPushNotification(sellerId, { title, message, link, 
     if (error) throw error;
     return data;
   } catch (err) {
-    // Non-fatal — push failures should never break the main flow
     console.warn('[Push] Trigger failed:', err.message || err);
     return null;
   }
@@ -829,7 +842,7 @@ export async function markOrderPaymentReceived(orderId) {
 }
 
 // ----------------------------------------------------
-// BUYER SELF-SERVICE (address edit + cancel)
+// BUYER SELF-SERVICE
 // ----------------------------------------------------
 
 export async function updateBuyerOrderAddress(orderId, {
@@ -901,7 +914,6 @@ export async function cancelOrderAsBuyer(orderId) {
     throw new Error('This order has already been packed or dispatched. Contact the seller directly.');
   }
 
-  // Restock inventory
   const items = Array.isArray(order.items) ? order.items : [];
   for (const item of items) {
     if (item.id) {
@@ -946,7 +958,7 @@ export async function cancelOrderAsBuyer(orderId) {
 }
 
 // ----------------------------------------------------
-// BULK ORDER STATUS (batch pack)
+// BULK ORDER STATUS
 // ----------------------------------------------------
 
 export async function bulkUpdateOrderStatus(orderIds, nextStatus) {
@@ -954,7 +966,6 @@ export async function bulkUpdateOrderStatus(orderIds, nextStatus) {
     return { updatedOrders: [], skipped: 0 };
   }
 
-  // Safety: only allow bulk 'packed' transitions
   if (nextStatus !== 'packed') {
     throw new Error('Bulk status changes are currently only supported for "packed".');
   }
@@ -966,7 +977,6 @@ export async function bulkUpdateOrderStatus(orderIds, nextStatus) {
 
   if (fetchErr) throw fetchErr;
 
-  // Determine eligibility per order
   const eligible = (orders || []).filter((o) => {
     if (o.status !== 'received') return false;
 
@@ -997,21 +1007,4 @@ export async function bulkUpdateOrderStatus(orderIds, nextStatus) {
     updatedOrders: data || [],
     skipped: (orders || []).length - (data?.length || 0),
   };
-}
-
-// ----------------------------------------------------
-// PRODUCT DEEP LINK LOOKUP
-// ----------------------------------------------------
-
-export async function fetchProductBySlug(sellerId, slug) {
-  if (!sellerId || !slug) return null;
-  const { data, error } = await supabase
-    .from('products')
-    .select('*')
-    .eq('seller_id', sellerId)
-    .eq('slug', slug)
-    .maybeSingle();
-
-  if (error) return null;
-  return data;
 }

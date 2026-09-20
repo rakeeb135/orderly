@@ -42,10 +42,11 @@ export default function Customers({ seller }) {
   const [saving, setSaving] = useState(false);
 
   const loadCustomers = async () => {
+    if (!seller?.id) return;
     try {
       setLoading(true);
-      const data = await fetchCustomers();
-      setCustomers(data);
+      const data = await fetchCustomers(seller.id);
+      setCustomers(data || []);
     } catch (err) {
       notify('Failed to load customers: ' + err.message, 'error');
     } finally {
@@ -55,7 +56,7 @@ export default function Customers({ seller }) {
 
   useEffect(() => {
     loadCustomers();
-  }, []);
+  }, [seller?.id]);
 
   const openEditModal = (cust) => {
     setEditingCustomer(cust);
