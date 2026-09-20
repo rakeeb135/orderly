@@ -1008,3 +1008,74 @@ export async function bulkUpdateOrderStatus(orderIds, nextStatus) {
     skipped: (orders || []).length - (data?.length || 0),
   };
 }
+
+// ----------------------------------------------------
+// BUYER TRUST NETWORK
+// ----------------------------------------------------
+
+const FLAG_REASON_LABELS = {
+  no_answer: "Buyer didn't answer phone",
+  refused: 'Buyer refused delivery',
+  wrong_address: 'Wrong / fake address',
+  changed_mind: 'Buyer changed mind',
+  other: 'Other reason',
+};
+
+export function flagReasonLabel(reason) {
+  return FLAG_REASON_LABELS[reason] || reason;
+}
+
+export async function createBuyerFlag({ sellerId, orderId, phone, reason, note = '' }) {
+  const cleanPhone = normalizeSLPhone(phone);
+  if (!cleanPhone || cleanPhone.length < 9) {
+    throw new Error('Invalid phone number for flagging.');
+  }
+  if (!reason) {
+    throw new Error('A reason is required.');
+  }
+
+  const { data, error } = await supabase
+    .from('buyer_flags')
+    .insert([{
+      seller_id: sellerId,
+      order_id: orderId,
+      phone: cleanPhone,
+      reason,
+      note: note.trim() || null,
+    }])
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === '23505') {
+      throw new Error('This order has already been flagged.');
+    }
+    throw error;
+  }
+  return data;
+}
+
+export async function getBuyerTrust(phone) {
+  if (!phone) return null;
+  const cleanPhone = normalizeSLPhone(phone);
+  if (!cleanPhone || cleanPhone.length < 9) return null;
+
+  const { data, error } = await supabase.rpc('get_buyer_trust', {
+    p_phone: cleanPhone,
+  });
+
+  if (error) {
+    console.warn('Trust lookup failed:', error.message);
+    return null;
+  }
+  return data;
+}
+
+export async function deleteBuyerFlag(flagId) {
+  if (!flagId) return;
+  const { error } = await supabase
+    .from('buyer_flags')
+    .delete()
+    .eq('id', flagId);
+  if (error) throw error;
+}

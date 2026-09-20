@@ -18,10 +18,13 @@ import {
   fetchOrderByUuid,
   updateOrderStatus,
   markOrderPaymentReceived,
+  createBuyerFlag,
   formatLKR,
   updateProductStock,
 } from '../services/dbService';
 import PrintManifestModal from '../components/PrintManifestModal';
+import ReturnReasonModal from '../components/ReturnReasonModal';
+import TrustReportCard from '../components/TrustReportCard';
 import { notify } from '../components/Toast';
 
 const SRI_LANKAN_COURIERS = [
@@ -44,6 +47,8 @@ export default function OrderDetail({ seller }) {
 
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [showDispatchModal, setShowDispatchModal] = useState(false);
+  const [showReturnModal, setShowReturnModal] = useState(false);
+  const [submittingReturn, setSubmittingReturn] = useState(false);
   const [selectedCourier, setSelectedCourier] = useState(SRI_LANKAN_COURIERS[0]);
   const [trackingNumber, setTrackingNumber] = useState('');
 
@@ -126,13 +131,12 @@ export default function OrderDetail({ seller }) {
     }
   };
 
-  const handleCancelOrder = async () => {
-    if (!window.confirm('Mark this order as returned? Stock items will be safely returned to catalog inventory.')) return;
-    setUpdating(true);
+  const handleConfirmReturn = async ({ reason, note }) => {
+    setSubmittingReturn(true);
 
     try {
+      // 1. Restock items
       const items = Array.isArray(order.items) ? order.items : [];
-
       for (const item of items) {
         if (item.id) {
           const { data: liveProduct } = await supabase
@@ -149,13 +153,30 @@ export default function OrderDetail({ seller }) {
         }
       }
 
+      // 2. Mark order as canceled
       const updated = await updateOrderStatus(order.id, 'canceled');
+
+      // 3. Create the buyer flag (network contribution)
+      try {
+        await createBuyerFlag({
+          sellerId: order.seller_id,
+          orderId: order.id,
+          phone: order.customer_phone,
+          reason,
+          note,
+        });
+      } catch (flagErr) {
+        // Non-fatal — order still canceled, just no flag
+        console.warn('Flag creation failed:', flagErr.message);
+      }
+
       setOrder((prev) => ({ ...prev, ...updated }));
-      notify('Order marked as returned and inventory returned to catalog.');
+      setShowReturnModal(false);
+      notify('Order returned. Buyer number flagged on the network.');
     } catch (err) {
       notify('Failed to update: ' + err.message, 'error');
     } finally {
-      setUpdating(false);
+      setSubmittingReturn(false);
     }
   };
 
@@ -339,6 +360,11 @@ export default function OrderDetail({ seller }) {
         </div>
       )}
 
+      {/* Buyer Trust Report — from the network */}
+      {!isCanceled && order.customer_phone && (
+        <TrustReportCard phone={order.customer_phone} />
+      )}
+
       {/* Buyer Verification Banner (COD only) */}
       {isCOD && !order.buyer_confirmed && !isCanceled && !isDelivered && (
         <div className="bg-amber-50 border border-amber-200 rounded-[24px] p-4 flex items-center justify-between gap-3 shadow-2xs">
@@ -491,9 +517,9 @@ export default function OrderDetail({ seller }) {
           )}
 
           <button
-            onClick={handleCancelOrder}
-            disabled={updating}
-            className="w-full py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-xl text-xs transition active:scale-95 disabled:opacity-50"
+            onClick={() => setShowReturnModal(true)}
+            disabled={updating || submittingReturn}
+            className="w-full py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-xl text-xs transition active:scale-95 disabled:opacity-50 cursor-pointer"
           >
             Mark as Returned Order & Restock Items
           </button>
@@ -564,6 +590,15 @@ export default function OrderDetail({ seller }) {
           seller={seller}
         />
       )}
+
+      {/* RETURN REASON MODAL */}
+      <ReturnReasonModal
+        isOpen={showReturnModal}
+        order={order}
+        onClose={() => setShowReturnModal(false)}
+        onConfirm={handleConfirmReturn}
+        submitting={submittingReturn}
+      />
     </div>
   );
 }

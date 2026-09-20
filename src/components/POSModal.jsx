@@ -12,6 +12,7 @@ import {
   Trash2
 } from 'lucide-react';
 import { createOrder, formatLKR, findCustomerByPhone } from '../services/dbService';
+import TrustReportCard from './TrustReportCard';
 import { normalizeSLPhone, isValidSLPhone } from '../utils/phone';
 import { notify } from './Toast';
 
@@ -344,6 +345,11 @@ export default function POSModal({ isOpen, onClose, seller, products = [], onOrd
                 />
               </div>
             </div>
+
+            {/* Buyer Trust Report — network check on phone number */}
+            {phone && phone.replace(/[^0-9]/g, '').length >= 9 && (
+              <TrustReportCard phone={phone} compact />
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
