@@ -13,7 +13,6 @@ import {
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import POSModal from './POSModal';
-import POSModal from './POSModal';
 import Toast from './Toast';
 import NotificationCenter from './NotificationCenter';
 import InstallAppModal from './InstallAppModal';
