@@ -13,8 +13,10 @@ import {
   Loader2,
   PackageCheck,
   Layers,
+  AlertTriangle,
 } from 'lucide-react';
-import { fetchOrders, formatLKR } from '../services/dbService';
+import { fetchOrders, getBulkBuyerTrust, formatLKR } from '../services/dbService';
+import { normalizeSLPhone } from '../utils/phone';
 import { supabase } from '../supabase';
 
 /* ------------------------------------------------------------------ */
@@ -59,6 +61,7 @@ export default function Dashboard({ seller }) {
   const [orders, setOrders] = useState([]);
   const [timeframe, setTimeframe] = useState('today');
   const [loading, setLoading] = useState(true);
+  const [trustMap, setTrustMap] = useState({});
 
   /* ---------------------------------------------------------------- */
   /*  Initial load                                                     */
@@ -125,6 +128,23 @@ export default function Dashboard({ seller }) {
       supabase.removeChannel(channel);
     };
   }, [seller?.id]);
+
+  /* ---------------------------------------------------------------- */
+  /*  Bulk trust lookup for recent orders                              */
+  /* ---------------------------------------------------------------- */
+  useEffect(() => {
+    if (!orders.length) return;
+    const phones = orders.map((o) => o.customer_phone).filter(Boolean);
+    if (!phones.length) return;
+
+    let mounted = true;
+    getBulkBuyerTrust(phones)
+      .then((map) => {
+        if (mounted) setTrustMap(map || {});
+      })
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, [orders]);
 
   /* ---------------------------------------------------------------- */
   /*  Pipeline buckets — MUST match Orders page tab definitions        */
@@ -477,6 +497,28 @@ export default function Dashboard({ seller }) {
                       <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider border ${pill}`}>
                         {statusLabel}
                       </span>
+
+                      {(() => {
+                        const cleanPhone = normalizeSLPhone(o.customer_phone || '');
+                        const trust = trustMap[cleanPhone];
+                        if (!trust || trust.total_flags === 0) return null;
+                        const isHighRisk =
+                          trust.total_flags >= 3 ||
+                          (trust.total_flags >= 2 && trust.distinct_sellers >= 2);
+                        return (
+                          <span
+                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold border ${
+                              isHighRisk
+                                ? 'bg-rose-50 text-rose-700 border-rose-300'
+                                : 'bg-amber-50 text-amber-700 border-amber-300'
+                            }`}
+                          >
+                            <AlertTriangle className="w-2.5 h-2.5" />
+                            Flagged
+                          </span>
+                        );
+                      })()}
+
                       <span className="text-[10px] text-stone-400 font-medium">
                         {relativeTime(o.created_at)}
                       </span>

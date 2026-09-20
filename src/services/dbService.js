@@ -1079,3 +1079,26 @@ export async function deleteBuyerFlag(flagId) {
     .eq('id', flagId);
   if (error) throw error;
 }
+
+export async function getBulkBuyerTrust(phones) {
+  if (!phones || !phones.length) return {};
+
+  // Normalize + dedupe
+  const cleaned = Array.from(new Set(
+    phones
+      .map((p) => normalizeSLPhone(p))
+      .filter((p) => p && p.length >= 9)
+  ));
+
+  if (!cleaned.length) return {};
+
+  const { data, error } = await supabase.rpc('get_bulk_buyer_trust', {
+    p_phones: cleaned,
+  });
+
+  if (error) {
+    console.warn('Bulk trust lookup failed:', error.message);
+    return {};
+  }
+  return data || {};
+}

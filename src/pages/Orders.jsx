@@ -22,14 +22,17 @@ import {
   Landmark,
   PackageCheck,
   AlertCircle,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   fetchOrders,
   updateOrderStatus,
   bulkUpdateOrderStatus,
   deleteOrdersBatch,
+  getBulkBuyerTrust,
   formatLKR,
 } from '../services/dbService';
+import { normalizeSLPhone } from '../utils/phone';
 import { supabase } from '../supabase';
 import PrintManifestModal from '../components/PrintManifestModal';
 import { notify } from '../components/Toast';
@@ -214,6 +217,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
   const [dispatchOrderTarget, setDispatchOrderTarget] = useState(null);
   const [selectedCourier, setSelectedCourier] = useState(SRI_LANKAN_COURIERS[0]);
   const [trackingNumber, setTrackingNumber] = useState('');
+  const [trustMap, setTrustMap] = useState({});
 
   const loadOrders = async () => {
     if (!seller?.id) return;
@@ -281,6 +285,25 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
       supabase.removeChannel(channel);
     };
   }, [seller?.id]);
+
+  /* ---------------------------------------------------------------- */
+  /*  Bulk trust lookup — ONE query for all visible order phones       */
+  /* ---------------------------------------------------------------- */
+  useEffect(() => {
+    if (!orders.length) return;
+    const phones = orders.map((o) => o.customer_phone).filter(Boolean);
+    if (!phones.length) return;
+
+    let mounted = true;
+    getBulkBuyerTrust(phones)
+      .then((map) => {
+        if (mounted) setTrustMap(map || {});
+      })
+      .catch(() => {
+        /* silent — trust data is best-effort */
+      });
+    return () => { mounted = false; };
+  }, [orders]);
 
   /* ---------------------------------------------------------------- */
   /*  Counts per tab                                                   */
@@ -573,6 +596,31 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                     Returned
                   </span>
                 )}
+
+                {/* Flagged buyer warning — visible before opening the order */}
+                {(() => {
+                  const cleanPhone = normalizeSLPhone(ord.customer_phone || '');
+                  const trust = trustMap[cleanPhone];
+                  if (!trust || trust.total_flags === 0) return null;
+                  const isHighRisk =
+                    trust.total_flags >= 3 ||
+                    (trust.total_flags >= 2 && trust.distinct_sellers >= 2);
+                  return (
+                    <span
+                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold border ${
+                        isHighRisk
+                          ? 'bg-rose-50 text-rose-700 border-rose-300'
+                          : 'bg-amber-50 text-amber-700 border-amber-300'
+                      }`}
+                      title={`${trust.total_flags} report${
+                        trust.total_flags === 1 ? '' : 's'
+                      } from other Ordy sellers`}
+                    >
+                      <AlertTriangle className="w-2.5 h-2.5" />
+                      Flagged
+                    </span>
+                  );
+                })()}
 
                 <span className="text-[10px] text-stone-400 font-medium ml-auto sm:ml-0">
                   {relativeTime(ord.created_at)}
