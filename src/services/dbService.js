@@ -173,16 +173,38 @@ export async function createProduct({
   description = '',
   category = 'General',
   photoUrls = [],
-  trackStock = true,
-  stockCount = 0,
+  trackStock = false,
+  stockCount = null,
   variants = [],
-  freeDelivery = false
+  freeDelivery = false,
+  productLimit = 500
 }) {
+  // 1. Enforce product limit
+  const { count: currentCount, error: countErr } = await supabase
+    .from('products')
+    .select('id', { count: 'exact', head: true })
+    .eq('seller_id', sellerId);
+
+  if (countErr) throw countErr;
+
+  if ((currentCount || 0) >= productLimit) {
+    throw new Error(
+      `You've reached the limit of ${productLimit} products on this plan. Contact support to raise it.`
+    );
+  }
+
+  // 2. Generate slug
   const slug = title
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '') + '-' + Math.random().toString(36).substring(2, 6);
+
+  // 3. Normalize stock fields
+  const finalTrackStock = Boolean(trackStock);
+  const finalStockCount = finalTrackStock
+    ? Math.max(0, parseInt(stockCount, 10) || 0)
+    : null; // null = made-to-order
 
   const { data, error } = await supabase
     .from('products')
@@ -196,8 +218,8 @@ export async function createProduct({
       description: description.trim(),
       category: category.trim() || 'General',
       photo_urls: photoUrls,
-      track_stock: trackStock,
-      stock_count: Number(stockCount) || 0,
+      track_stock: finalTrackStock,
+      stock_count: finalStockCount,
       variants: variants,
       free_delivery: Boolean(freeDelivery)
     }])
@@ -217,11 +239,19 @@ export async function updateProduct(productId, updates) {
   if (payload.cost_price !== undefined) {
     payload.cost_price = payload.cost_price ? Number(payload.cost_price) : null;
   }
-  if (payload.stock_count !== undefined) {
-    payload.stock_count = Number(payload.stock_count) || 0;
-  }
   if (payload.free_delivery !== undefined) {
     payload.free_delivery = Boolean(payload.free_delivery);
+  }
+
+  // Normalize stock based on track flag
+  if (payload.track_stock !== undefined) {
+    payload.track_stock = Boolean(payload.track_stock);
+    if (payload.track_stock === false) {
+      payload.stock_count = null;
+    }
+  }
+  if (payload.stock_count !== undefined && payload.stock_count !== null) {
+    payload.stock_count = Math.max(0, parseInt(payload.stock_count, 10) || 0);
   }
 
   const { data, error } = await supabase
@@ -236,10 +266,11 @@ export async function updateProduct(productId, updates) {
 }
 
 export async function updateProductStock(productId, newStock) {
-  const parsedStock = Math.max(0, parseInt(newStock, 10));
+  // Seller-only path: authenticated. Used for manual restock from Products page.
+  const parsedStock = Math.max(0, parseInt(newStock, 10) || 0);
   const { data, error } = await supabase
     .from('products')
-    .update({ stock_count: parsedStock })
+    .update({ stock_count: parsedStock, track_stock: true })
     .eq('id', productId)
     .select()
     .single();
@@ -271,7 +302,7 @@ export async function fetchProductBySlug(sellerId, slug) {
 }
 
 // ----------------------------------------------------
-// CUSTOMERS (per-seller, scoped by seller_id)
+// CUSTOMERS (per-seller)
 // ----------------------------------------------------
 
 export async function findCustomerByPhone(sellerId, phone) {
@@ -438,6 +469,42 @@ export async function createOrder({
     throw new Error('Valid 10-digit Sri Lankan phone number is required.');
   }
 
+  // ---- STOCK CHECK + DECREMENT (atomic, per item) ----
+  // We decrement BEFORE creating the order. If any item fails, we roll back
+  // the ones that already succeeded, then throw.
+  const decrementedItems = [];
+  try {
+    for (const item of items) {
+      if (!item.id) continue; // skip custom items with no product id
+
+      const qty = Number(item.quantity) || 1;
+      const { data: result, error: rpcErr } = await supabase.rpc(
+        'decrement_product_stock',
+        { p_product_id: item.id, p_quantity: qty }
+      );
+
+      if (rpcErr) {
+        // Roll back everything we already decremented
+        for (const d of decrementedItems) {
+          await supabase.rpc('restore_product_stock', {
+            p_product_id: d.productId,
+            p_quantity: d.qty,
+          });
+        }
+        // Parse friendly message from the RPC error
+        const msg = rpcErr.message || 'Item is no longer available';
+        throw new Error(msg.replace(/^.*?:\s*/, ''));
+      }
+
+      if (result?.decremented) {
+        decrementedItems.push({ productId: item.id, qty });
+      }
+    }
+  } catch (stockErr) {
+    throw stockErr;
+  }
+
+  // ---- CUSTOMER UPSERT ----
   const customer = await getOrCreateCustomer({
     sellerId,
     phone: cleanPhone,
@@ -451,17 +518,25 @@ export async function createOrder({
   const subtotal = items.reduce((sum, item) => sum + (Number(item.price) * (Number(item.quantity) || 1)), 0);
   const totalAmount = subtotal + Number(deliveryFee);
 
-  // Atomic order code allocation via SECURITY DEFINER RPC (works for anon buyers)
+  // ---- ORDER CODE ----
   const { data: codeResult, error: codeErr } = await supabase.rpc('next_order_code', {
     p_seller_id: sellerId,
   });
 
   if (codeErr) {
+    // Roll back stock
+    for (const d of decrementedItems) {
+      await supabase.rpc('restore_product_stock', {
+        p_product_id: d.productId,
+        p_quantity: d.qty,
+      });
+    }
     throw new Error('Failed to allocate order code: ' + codeErr.message);
   }
 
   const orderCode = String(codeResult);
 
+  // ---- INSERT ORDER ----
   const { data: order, error: orderErr } = await supabase
     .from('orders')
     .insert([{
@@ -492,41 +567,53 @@ export async function createOrder({
     .select()
     .single();
 
-  if (orderErr) throw orderErr;
+  if (orderErr) {
+    // Roll back stock
+    for (const d of decrementedItems) {
+      await supabase.rpc('restore_product_stock', {
+        p_product_id: d.productId,
+        p_quantity: d.qty,
+      });
+    }
+    throw orderErr;
+  }
 
-  // Inventory Decrement & Low Stock Alert
+  // ---- LOW STOCK ALERTS ----
   for (const item of items) {
-    if (item.id && item.track_stock !== false) {
-      const { data: currentProd } = await supabase
-        .from('products')
-        .select('title, stock_count')
-        .eq('id', item.id)
-        .single();
+    if (!item.id) continue;
+    const { data: currentProd } = await supabase
+      .from('products')
+      .select('title, stock_count, track_stock')
+      .eq('id', item.id)
+      .single();
 
-      if (currentProd) {
-        const remainingStock = Math.max(0, currentProd.stock_count - (item.quantity || 1));
-        await supabase
-          .from('products')
-          .update({ stock_count: remainingStock })
-          .eq('id', item.id);
-
-        if (remainingStock <= 2) {
-          await createNotification(sellerId, {
-            title: 'Low Stock Alert',
-            message: `"${currentProd.title}" is running low (${remainingStock} left in inventory).`,
-            type: 'stock',
-            link: '/products'
-          });
-        }
+    if (currentProd && currentProd.track_stock) {
+      const remaining = Number(currentProd.stock_count) || 0;
+      if (remaining === 0) {
+        await createNotification(sellerId, {
+          title: 'Product sold out',
+          message: `"${currentProd.title}" is now out of stock. Restock or hide it to avoid new orders.`,
+          type: 'stock',
+          link: '/products'
+        });
+      } else if (remaining <= 3) {
+        await createNotification(sellerId, {
+          title: 'Low stock alert',
+          message: `"${currentProd.title}" — only ${remaining} left in inventory.`,
+          type: 'stock',
+          link: '/products'
+        });
       }
     }
   }
 
+  // ---- CUSTOMER ORDER COUNT ----
   await supabase
     .from('customers')
     .update({ total_orders: (customer.total_orders || 0) + 1 })
     .eq('id', customer.id);
 
+  // ---- SELLER NOTIFICATION ----
   await createNotification(sellerId, {
     title: `New Order #${order.order_code || order.id.slice(0, 4)}`,
     message: `${order.customer_name} placed an order for ${formatLKR(order.total_amount)} (${order.payment_method}).`,
@@ -602,17 +689,10 @@ export async function deleteOrdersBatch(orderIds) {
       const items = Array.isArray(order.items) ? order.items : [];
       for (const item of items) {
         if (item.id) {
-          const { data: liveProduct } = await supabase
-            .from('products')
-            .select('stock_count')
-            .eq('id', item.id)
-            .single();
-
-          if (liveProduct) {
-            const currentStock = Number(liveProduct.stock_count) || 0;
-            const qtyToReturn = Number(item.quantity) || 1;
-            await updateProductStock(item.id, currentStock + qtyToReturn);
-          }
+          await supabase.rpc('restore_product_stock', {
+            p_product_id: item.id,
+            p_quantity: Number(item.quantity) || 1,
+          });
         }
       }
     }
@@ -914,22 +994,14 @@ export async function cancelOrderAsBuyer(orderId) {
     throw new Error('This order has already been packed or dispatched. Contact the seller directly.');
   }
 
+  // Restock via RPC (anon-safe)
   const items = Array.isArray(order.items) ? order.items : [];
   for (const item of items) {
     if (item.id) {
-      const { data: liveProduct } = await supabase
-        .from('products')
-        .select('stock_count')
-        .eq('id', item.id)
-        .single();
-
-      if (liveProduct) {
-        const newStock = (Number(liveProduct.stock_count) || 0) + (Number(item.quantity) || 1);
-        await supabase
-          .from('products')
-          .update({ stock_count: newStock })
-          .eq('id', item.id);
-      }
+      await supabase.rpc('restore_product_stock', {
+        p_product_id: item.id,
+        p_quantity: Number(item.quantity) || 1,
+      });
     }
   }
 
@@ -1071,19 +1143,9 @@ export async function getBuyerTrust(phone) {
   return data;
 }
 
-export async function deleteBuyerFlag(flagId) {
-  if (!flagId) return;
-  const { error } = await supabase
-    .from('buyer_flags')
-    .delete()
-    .eq('id', flagId);
-  if (error) throw error;
-}
-
 export async function getBulkBuyerTrust(phones) {
   if (!phones || !phones.length) return {};
 
-  // Normalize + dedupe
   const cleaned = Array.from(new Set(
     phones
       .map((p) => normalizeSLPhone(p))
@@ -1101,4 +1163,13 @@ export async function getBulkBuyerTrust(phones) {
     return {};
   }
   return data || {};
+}
+
+export async function deleteBuyerFlag(flagId) {
+  if (!flagId) return;
+  const { error } = await supabase
+    .from('buyer_flags')
+    .delete()
+    .eq('id', flagId);
+  if (error) throw error;
 }
