@@ -8,7 +8,8 @@ import {
   Loader2,
   Power,
   Trash2,
-  X
+  X,
+  History,
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import {
@@ -18,6 +19,7 @@ import {
   setCustomSubscriptionExpiry,
   toggleStoreActiveStatus,
   deleteSellerAdmin,
+  fetchSubscriptionHistory,
   formatLKR
 } from '../services/dbService';
 import { notify } from '../components/Toast';
@@ -30,13 +32,15 @@ export default function AdminPortal() {
   const [customDatePickerShop, setCustomDatePickerShop] = useState(null);
   const [customDate, setCustomDate] = useState('');
   const [updatingId, setUpdatingId] = useState(null);
+  const [historyShop, setHistoryShop] = useState(null);
+  const [historyEvents, setHistoryEvents] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const navigate = useNavigate();
 
   const loadAllShops = async () => {
     try {
       setLoading(true);
 
-      // 1. Get the current auth session
       const { data: sessionData } = await supabase.auth.getSession();
       const authUserId = sessionData?.session?.user?.id;
 
@@ -45,7 +49,6 @@ export default function AdminPortal() {
         return;
       }
 
-      // 2. Fetch the current seller row
       const meSeller = await fetchCurrentSeller(authUserId);
 
       if (!meSeller || !meSeller.is_super_admin) {
@@ -56,7 +59,6 @@ export default function AdminPortal() {
 
       setMe(meSeller);
 
-      // 3. Fetch all sellers for the admin table
       const data = await fetchAllSellersAdmin();
       setSellers(data);
     } catch (err) {
@@ -99,6 +101,19 @@ export default function AdminPortal() {
       notify('Update failed: ' + err.message, 'error');
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  const handleOpenHistory = async (shop) => {
+    setHistoryShop(shop);
+    setHistoryLoading(true);
+    try {
+      const events = await fetchSubscriptionHistory(shop.id, 50);
+      setHistoryEvents(events);
+    } catch {
+      setHistoryEvents([]);
+    } finally {
+      setHistoryLoading(false);
     }
   };
 
@@ -172,7 +187,7 @@ export default function AdminPortal() {
     <div className="min-h-screen bg-[#F4F6F4] text-[#111813] font-sans p-4 sm:p-8">
       <div className="max-w-6xl mx-auto space-y-6">
 
-        {/* Super-Admin Top Bar */}
+        {/* Top Bar */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white border border-[#E7EBE7] rounded-[28px] p-6 shadow-xs">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-[#111813] text-white flex items-center justify-center font-black">
@@ -191,7 +206,7 @@ export default function AdminPortal() {
           </Link>
         </div>
 
-        {/* Global Platform KPIs */}
+        {/* KPIs */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-4 space-y-1 shadow-xs">
             <span className="text-[10px] font-bold uppercase tracking-wider text-[#5A655D]">Total Shops</span>
@@ -218,7 +233,7 @@ export default function AdminPortal() {
           </div>
         </div>
 
-        {/* Shop Directory & Controls */}
+        {/* Directory */}
         <div className="bg-white border border-[#E7EBE7] rounded-[28px] p-6 shadow-xs space-y-4">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-[#E7EBE7] pb-4">
             <div>
@@ -238,7 +253,6 @@ export default function AdminPortal() {
             </div>
           </div>
 
-          {/* Directory Table */}
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
@@ -323,6 +337,15 @@ export default function AdminPortal() {
                       <td className="py-3.5 pl-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
+                            onClick={() => handleOpenHistory(shop)}
+                            disabled={isBusy}
+                            className="p-1.5 rounded-lg bg-[#F4F6F4] hover:bg-stone-200 text-stone-500 hover:text-[#006241] transition"
+                            title="View subscription history"
+                          >
+                            <History className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
                             onClick={() => handleToggleActive(shop)}
                             disabled={isBusy}
                             className={`p-1.5 rounded-lg border transition ${
@@ -354,6 +377,93 @@ export default function AdminPortal() {
             </table>
           </div>
         </div>
+
+        {/* History Modal */}
+        {historyShop && (
+          <div className="fixed inset-0 bg-[#111813]/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-[28px] max-w-lg w-full shadow-2xl max-h-[85vh] flex flex-col overflow-hidden">
+              <div className="flex justify-between items-center p-5 pb-3 border-b border-[#E7EBE7] shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-[#F4F6F4] flex items-center justify-center">
+                    <History className="w-4 h-4 text-[#006241]" />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-sm">Subscription History</h3>
+                    <p className="text-[11px] text-[#5A655D] truncate">
+                      {historyShop.shop_name} · /{historyShop.handle}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => { setHistoryShop(null); setHistoryEvents([]); }}
+                  className="p-1.5 -m-1.5 text-stone-400 hover:text-black transition"
+                  aria-label="Close"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="overflow-y-auto p-4 space-y-2">
+                {historyLoading ? (
+                  <div className="p-8 flex justify-center">
+                    <Loader2 className="w-5 h-5 text-[#006241] animate-spin" />
+                  </div>
+                ) : historyEvents.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-[#71717A]">
+                    No subscription events recorded yet.
+                  </div>
+                ) : (
+                  historyEvents.map((ev) => {
+                    const date = new Date(ev.created_at);
+                    const dateStr = date.toLocaleDateString('en-GB', {
+                      day: 'numeric', month: 'short', year: 'numeric',
+                    });
+                    const timeStr = date.toLocaleTimeString('en-GB', {
+                      hour: '2-digit', minute: '2-digit',
+                    });
+
+                    let title = ev.event_type;
+                    let detail = '';
+                    if (ev.event_type === 'signup') {
+                      title = 'Initial signup';
+                      detail = `Trial started · ${ev.days_added || 14} days`;
+                    } else if (ev.event_type === 'extend') {
+                      title = `Extended +${ev.days_added} days`;
+                      detail = ev.new_expiry
+                        ? `New expiry: ${new Date(ev.new_expiry).toLocaleDateString('en-GB')}`
+                        : '';
+                    } else if (ev.event_type === 'set_expiry') {
+                      title = 'Expiry date changed';
+                      detail = ev.new_expiry
+                        ? `New expiry: ${new Date(ev.new_expiry).toLocaleDateString('en-GB')}`
+                        : '';
+                    } else if (ev.event_type === 'suspend') {
+                      title = 'Store suspended';
+                      detail = 'Manually suspended by admin';
+                    } else if (ev.event_type === 'reactivate') {
+                      title = 'Store reactivated';
+                      detail = 'Manually reactivated by admin';
+                    }
+
+                    return (
+                      <div key={ev.id} className="border border-[#E7EBE7] rounded-2xl p-3.5 space-y-1.5 bg-white">
+                        <div className="flex justify-between items-start gap-3">
+                          <div className="font-black text-xs text-[#111813]">{title}</div>
+                          <div className="text-[10px] text-stone-400 font-mono shrink-0">
+                            {dateStr} · {timeStr}
+                          </div>
+                        </div>
+                        {detail && (
+                          <div className="text-[11px] text-[#5A655D]">{detail}</div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Custom Expiry Date Picker Modal */}
         {customDatePickerShop && (

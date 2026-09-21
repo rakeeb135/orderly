@@ -102,6 +102,8 @@ export async function createSeller({ authUserId, shopName, handle, email, whatsa
     throw new Error('Please enter a valid 10-digit Sri Lankan phone number.');
   }
 
+  const trialEnd = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+
   const { data, error } = await supabase
     .from('sellers')
     .insert([{
@@ -111,7 +113,7 @@ export async function createSeller({ authUserId, shopName, handle, email, whatsa
       email: email.trim().toLowerCase(),
       whatsapp_number: cleanPhone,
       subscription_status: 'trial',
-      subscription_expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+      subscription_expires_at: trialEnd,
       next_order_number: 1,
     }])
     .select()
@@ -123,6 +125,18 @@ export async function createSeller({ authUserId, shopName, handle, email, whatsa
     }
     throw error;
   }
+
+  // Log the initial signup (best-effort)
+  await logSubscriptionEvent({
+    sellerId: data.id,
+    adminSellerId: null,
+    eventType: 'signup',
+    daysAdded: 14,
+    oldExpiry: null,
+    newExpiry: trialEnd,
+    notes: '14-day free trial',
+  });
+
   return data;
 }
 
@@ -204,7 +218,7 @@ export async function createProduct({
   const finalTrackStock = Boolean(trackStock);
   const finalStockCount = finalTrackStock
     ? Math.max(0, parseInt(stockCount, 10) || 0)
-    : null; // null = made-to-order
+    : null;
 
   const { data, error } = await supabase
     .from('products')
@@ -243,7 +257,6 @@ export async function updateProduct(productId, updates) {
     payload.free_delivery = Boolean(payload.free_delivery);
   }
 
-  // Normalize stock based on track flag
   if (payload.track_stock !== undefined) {
     payload.track_stock = Boolean(payload.track_stock);
     if (payload.track_stock === false) {
@@ -266,7 +279,6 @@ export async function updateProduct(productId, updates) {
 }
 
 export async function updateProductStock(productId, newStock) {
-  // Seller-only path: authenticated. Used for manual restock from Products page.
   const parsedStock = Math.max(0, parseInt(newStock, 10) || 0);
   const { data, error } = await supabase
     .from('products')
@@ -470,12 +482,10 @@ export async function createOrder({
   }
 
   // ---- STOCK CHECK + DECREMENT (atomic, per item) ----
-  // We decrement BEFORE creating the order. If any item fails, we roll back
-  // the ones that already succeeded, then throw.
   const decrementedItems = [];
   try {
     for (const item of items) {
-      if (!item.id) continue; // skip custom items with no product id
+      if (!item.id) continue;
 
       const qty = Number(item.quantity) || 1;
       const { data: result, error: rpcErr } = await supabase.rpc(
@@ -484,14 +494,12 @@ export async function createOrder({
       );
 
       if (rpcErr) {
-        // Roll back everything we already decremented
         for (const d of decrementedItems) {
           await supabase.rpc('restore_product_stock', {
             p_product_id: d.productId,
             p_quantity: d.qty,
           });
         }
-        // Parse friendly message from the RPC error
         const msg = rpcErr.message || 'Item is no longer available';
         throw new Error(msg.replace(/^.*?:\s*/, ''));
       }
@@ -524,7 +532,6 @@ export async function createOrder({
   });
 
   if (codeErr) {
-    // Roll back stock
     for (const d of decrementedItems) {
       await supabase.rpc('restore_product_stock', {
         p_product_id: d.productId,
@@ -568,7 +575,6 @@ export async function createOrder({
     .single();
 
   if (orderErr) {
-    // Roll back stock
     for (const d of decrementedItems) {
       await supabase.rpc('restore_product_stock', {
         p_product_id: d.productId,
@@ -730,40 +736,71 @@ export async function extendSubscription(sellerId, daysToAdd) {
 
   if (fetchErr) throw fetchErr;
 
-  const baseDate = current.subscription_expires_at && new Date(current.subscription_expires_at) > new Date()
-    ? new Date(current.subscription_expires_at)
+  const oldExpiry = current.subscription_expires_at;
+  const baseDate = oldExpiry && new Date(oldExpiry) > new Date()
+    ? new Date(oldExpiry)
     : new Date();
 
   baseDate.setDate(baseDate.getDate() + Number(daysToAdd));
+  const newExpiry = baseDate.toISOString();
 
   const { data, error } = await supabase
     .from('sellers')
     .update({
       subscription_status: 'active',
-      subscription_expires_at: baseDate.toISOString(),
-      is_active: true
+      subscription_expires_at: newExpiry,
     })
     .eq('id', sellerId)
     .select()
     .single();
 
   if (error) throw error;
+
+  const adminSellerId = await getCurrentAdminSellerId();
+  await logSubscriptionEvent({
+    sellerId,
+    adminSellerId,
+    eventType: 'extend',
+    daysAdded: Number(daysToAdd),
+    oldExpiry,
+    newExpiry,
+  });
+
   return data;
 }
 
 export async function setCustomSubscriptionExpiry(sellerId, customIsoDate) {
+  const { data: current } = await supabase
+    .from('sellers')
+    .select('subscription_expires_at')
+    .eq('id', sellerId)
+    .single();
+
+  const oldExpiry = current?.subscription_expires_at;
+  const newDate = new Date(customIsoDate);
+  const newExpiry = newDate.toISOString();
+
   const { data, error } = await supabase
     .from('sellers')
     .update({
-      subscription_status: new Date(customIsoDate) > new Date() ? 'active' : 'expired',
-      subscription_expires_at: new Date(customIsoDate).toISOString(),
-      is_active: new Date(customIsoDate) > new Date()
+      subscription_status: newDate > new Date() ? 'active' : 'expired',
+      subscription_expires_at: newExpiry,
     })
     .eq('id', sellerId)
     .select()
     .single();
 
   if (error) throw error;
+
+  const adminSellerId = await getCurrentAdminSellerId();
+  await logSubscriptionEvent({
+    sellerId,
+    adminSellerId,
+    eventType: 'set_expiry',
+    oldExpiry,
+    newExpiry,
+  });
+
   return data;
 }
 
@@ -773,13 +810,21 @@ export async function toggleStoreActiveStatus(sellerId, currentStatus) {
     .from('sellers')
     .update({
       is_active: nextStatus,
-      subscription_status: nextStatus ? 'active' : 'suspended'
+      subscription_status: nextStatus ? 'active' : 'suspended',
     })
     .eq('id', sellerId)
     .select()
     .single();
 
   if (error) throw error;
+
+  const adminSellerId = await getCurrentAdminSellerId();
+  await logSubscriptionEvent({
+    sellerId,
+    adminSellerId,
+    eventType: nextStatus ? 'reactivate' : 'suspend',
+  });
+
   return data;
 }
 
@@ -994,7 +1039,6 @@ export async function cancelOrderAsBuyer(orderId) {
     throw new Error('This order has already been packed or dispatched. Contact the seller directly.');
   }
 
-  // Restock via RPC (anon-safe)
   const items = Array.isArray(order.items) ? order.items : [];
   for (const item of items) {
     if (item.id) {
@@ -1175,7 +1219,7 @@ export async function deleteBuyerFlag(flagId) {
 }
 
 // ----------------------------------------------------
-// SERVER-SIDE PAGINATION (scales to 10k+ orders)
+// SERVER-SIDE PAGINATION
 // ----------------------------------------------------
 
 export async function getOrderCounts(sellerId) {
@@ -1250,5 +1294,65 @@ export async function fetchRecentOrders(sellerId, limit = 5) {
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) throw error;
+  return data || [];
+}
+
+// ----------------------------------------------------
+// SUBSCRIPTION AUDIT TRAIL
+// ----------------------------------------------------
+
+async function getCurrentAdminSellerId() {
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const userId = sessionData?.session?.user?.id;
+    if (!userId) return null;
+    const { data: adminSeller } = await supabase
+      .from('sellers')
+      .select('id')
+      .eq('auth_user_id', userId)
+      .maybeSingle();
+    return adminSeller?.id || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function logSubscriptionEvent({
+  sellerId,
+  adminSellerId = null,
+  eventType,
+  daysAdded = null,
+  oldExpiry = null,
+  newExpiry = null,
+  notes = null,
+}) {
+  try {
+    await supabase.from('subscription_events').insert([{
+      seller_id: sellerId,
+      admin_seller_id: adminSellerId,
+      event_type: eventType,
+      days_added: daysAdded,
+      old_expiry: oldExpiry,
+      new_expiry: newExpiry,
+      notes,
+    }]);
+  } catch (err) {
+    console.warn('[audit] Failed to log subscription event:', err?.message || err);
+  }
+}
+
+export async function fetchSubscriptionHistory(sellerId, limit = 50) {
+  if (!sellerId) return [];
+  const { data, error } = await supabase
+    .from('subscription_events')
+    .select('*')
+    .eq('seller_id', sellerId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.warn('Failed to fetch subscription history:', error.message);
+    return [];
+  }
   return data || [];
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { NavLink, Outlet, useNavigate, Link } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
 import {
   Home,
   FileText,
@@ -9,7 +9,10 @@ import {
   ExternalLink,
   Plus,
   LogOut,
-  Store
+  Store,
+  MoreVertical,
+  ShieldCheck,
+  X,
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import POSModal from './POSModal';
@@ -20,7 +23,6 @@ import SubscriptionBanner from './SubscriptionBanner';
 
 /* ------------------------------------------------------------------ */
 /*  Viewport hook — mount only one NotificationCenter at a time        */
-/*  (prevents double realtime subscriptions + double chime)            */
 /* ------------------------------------------------------------------ */
 function useIsDesktop() {
   const [isDesktop, setIsDesktop] = useState(() => {
@@ -40,10 +42,18 @@ function useIsDesktop() {
 
 export default function Layout({ seller, setSeller, products, setProducts, onOrderCreated }) {
   const [showPOS, setShowPOS] = useState(false);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const isDesktop = useIsDesktop();
 
+  // Close the mobile menu on any route change
+  useEffect(() => {
+    setShowMobileMenu(false);
+  }, [location.pathname]);
+
   const handleLogout = async () => {
+    setShowMobileMenu(false);
     try {
       await supabase.auth.signOut();
     } catch (err) {
@@ -65,7 +75,7 @@ export default function Layout({ seller, setSeller, products, setProducts, onOrd
       <Toast />
       <InstallAppModal shopName={seller?.shop_name || 'Ordy'} />
 
-      {/* Desktop floating notification bell — top-right of screen */}
+      {/* Desktop floating notification bell */}
       {isDesktop && (
         <div className="fixed top-4 right-6 z-40">
           <NotificationCenter sellerId={seller?.id} />
@@ -75,7 +85,7 @@ export default function Layout({ seller, setSeller, products, setProducts, onOrd
       {/* DESKTOP SIDEBAR */}
       <aside className="hidden md:flex flex-col w-64 bg-white border-r border-[#E7EBE7] p-5 justify-between shrink-0 fixed inset-y-0 left-0 z-30">
         <div className="space-y-5">
-          {/* Shop Header (bell removed — it lives top-right now) */}
+          {/* Shop Header */}
           <div className="flex items-center gap-2.5 pb-4 border-b border-[#E7EBE7] min-w-0">
             <div className="w-10 h-10 rounded-2xl bg-[#006241] flex items-center justify-center text-white font-black text-sm shadow-xs shrink-0 overflow-hidden">
               {seller?.logo_url ? (
@@ -170,7 +180,6 @@ export default function Layout({ seller, setSeller, products, setProducts, onOrd
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Only mount the mobile notification center on mobile */}
           {!isDesktop && <NotificationCenter sellerId={seller?.id} />}
 
           <button
@@ -190,8 +199,103 @@ export default function Layout({ seller, setSeller, products, setProducts, onOrd
               <ExternalLink className="w-4 h-4" />
             </Link>
           )}
+
+          <button
+            type="button"
+            onClick={() => setShowMobileMenu(true)}
+            className="p-2 bg-white border border-[#E7EBE7] rounded-xl text-[#5A655D] shadow-xs active:scale-95 transition"
+            title="Account menu"
+            aria-label="Account menu"
+          >
+            <MoreVertical className="w-4 h-4" />
+          </button>
         </div>
       </header>
+
+      {/* MOBILE ACCOUNT MENU */}
+      {showMobileMenu && (
+        <>
+          <div
+            className="md:hidden fixed inset-0 z-[80] bg-black/40 backdrop-blur-sm"
+            onClick={() => setShowMobileMenu(false)}
+          />
+          <div className="md:hidden fixed inset-x-3 bottom-4 z-[90] bg-white border border-[#E7EBE7] rounded-[24px] shadow-2xl overflow-hidden">
+            {/* Shop header */}
+            <div className="p-4 border-b border-[#E7EBE7] flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-[#006241] flex items-center justify-center text-white font-black text-sm shrink-0 overflow-hidden">
+                {seller?.logo_url ? (
+                  <img src={seller.logo_url} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  seller?.shop_name?.[0] || 'O'
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="font-extrabold text-sm truncate">{seller?.shop_name || 'My Store'}</div>
+                <div className="text-[11px] text-[#5A655D] font-mono truncate">/{seller?.handle}</div>
+              </div>
+              <button
+                onClick={() => setShowMobileMenu(false)}
+                className="p-2 text-stone-400 hover:text-black transition"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Items */}
+            <div className="divide-y divide-[#E7EBE7]">
+              {seller?.is_super_admin && (
+                <Link
+                  to="/admin"
+                  className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-[#F4F6F4] text-left transition"
+                  onClick={() => setShowMobileMenu(false)}
+                >
+                  <div className="w-8 h-8 rounded-xl bg-[#E8F0E9] flex items-center justify-center shrink-0">
+                    <ShieldCheck className="w-4 h-4 text-[#006241]" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-bold text-xs text-[#006241]">Operator Portal</div>
+                    <div className="text-[10px] text-[#5A655D]">Manage all stores</div>
+                  </div>
+                  <ExternalLink className="w-3.5 h-3.5 text-stone-400" />
+                </Link>
+              )}
+
+              {seller?.handle && (
+                <Link
+                  to={`/${seller.handle}`}
+                  target="_blank"
+                  className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-[#F4F6F4] text-left transition"
+                  onClick={() => setShowMobileMenu(false)}
+                >
+                  <div className="w-8 h-8 rounded-xl bg-[#F4F6F4] flex items-center justify-center shrink-0">
+                    <Store className="w-4 h-4 text-[#5A655D]" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-bold text-xs">View Storefront</div>
+                    <div className="text-[10px] text-[#5A655D]">See your shop as a buyer</div>
+                  </div>
+                  <ExternalLink className="w-3.5 h-3.5 text-stone-400" />
+                </Link>
+              )}
+
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-rose-50 text-left transition"
+              >
+                <div className="w-8 h-8 rounded-xl bg-rose-50 flex items-center justify-center shrink-0">
+                  <LogOut className="w-4 h-4 text-rose-600" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="font-bold text-xs text-rose-700">Sign out</div>
+                  <div className="text-[10px] text-rose-500">Log out of this device</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* MAIN WORKSPACE */}
       <main className="flex-1 md:ml-64 p-4 sm:p-8 max-w-5xl mx-auto w-full pb-28 md:pb-8 md:pt-8">
