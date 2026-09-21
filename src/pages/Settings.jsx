@@ -36,6 +36,7 @@ import {
   forceText,
 } from '../utils/csvExport';
 import { notify } from '../components/Toast';
+import ImageCropper from '../components/ImageCropper';
 
 // Official 25 Administrative Districts of Sri Lanka
 const SL_DISTRICTS = [
@@ -95,6 +96,10 @@ export default function Settings({ seller, setSeller }) {
   const logoInputRef = useRef(null);
   const bannerInputRef = useRef(null);
 
+  // Crop state
+  const [logoCrop, setLogoCrop] = useState(null);   // { dataUrl, originalFile }
+  const [bannerCrop, setBannerCrop] = useState(null);
+
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -141,14 +146,46 @@ export default function Settings({ seller, setSeller }) {
     }
   };
 
+  const fileToDataUrl = (file) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
   const handleLogoUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = '';
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setLogoCrop({ dataUrl, originalFile: file });
+    } catch (err) {
+      notify('Could not read image: ' + err.message, 'error');
+    }
+  };
+
+  const handleBannerUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setBannerCrop({ dataUrl, originalFile: file });
+    } catch (err) {
+      notify('Could not read image: ' + err.message, 'error');
+    }
+  };
+
+  const handleLogoApply = async (blob) => {
     setUploadingLogo(true);
     try {
+      const file = new File([blob], 'logo.webp', { type: 'image/webp' });
       const publicUrl = await uploadStoreAsset(file, 'logos');
       setLogoUrl(publicUrl);
-      notify('Logo uploaded and compressed!');
+      notify('Logo uploaded!');
+      setLogoCrop(null);
     } catch (err) {
       notify('Logo upload failed: ' + err.message, 'error');
     } finally {
@@ -156,14 +193,44 @@ export default function Settings({ seller, setSeller }) {
     }
   };
 
-  const handleBannerUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleLogoSkipped = async () => {
+    if (!logoCrop) return;
+    setUploadingLogo(true);
+    try {
+      const publicUrl = await uploadStoreAsset(logoCrop.originalFile, 'logos');
+      setLogoUrl(publicUrl);
+      notify('Logo uploaded!');
+      setLogoCrop(null);
+    } catch (err) {
+      notify('Logo upload failed: ' + err.message, 'error');
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
+
+  const handleBannerApply = async (blob) => {
     setUploadingBanner(true);
     try {
+      const file = new File([blob], 'banner.webp', { type: 'image/webp' });
       const publicUrl = await uploadStoreAsset(file, 'banners');
       setBannerUrl(publicUrl);
-      notify('Banner uploaded and compressed!');
+      notify('Banner uploaded!');
+      setBannerCrop(null);
+    } catch (err) {
+      notify('Banner upload failed: ' + err.message, 'error');
+    } finally {
+      setUploadingBanner(false);
+    }
+  };
+
+  const handleBannerSkipped = async () => {
+    if (!bannerCrop) return;
+    setUploadingBanner(true);
+    try {
+      const publicUrl = await uploadStoreAsset(bannerCrop.originalFile, 'banners');
+      setBannerUrl(publicUrl);
+      notify('Banner uploaded!');
+      setBannerCrop(null);
     } catch (err) {
       notify('Banner upload failed: ' + err.message, 'error');
     } finally {
@@ -872,6 +939,30 @@ export default function Settings({ seller, setSeller }) {
           </div>
         )}
       </div>
+
+      {/* LOGO CROPPER */}
+      <ImageCropper
+        isOpen={!!logoCrop}
+        imageSrc={logoCrop?.dataUrl}
+        aspect={1}
+        outputWidth={400}
+        title="Crop Store Logo"
+        onCancel={() => setLogoCrop(null)}
+        onApply={handleLogoApply}
+        onSkip={handleLogoSkipped}
+      />
+
+      {/* BANNER CROPPER */}
+      <ImageCropper
+        isOpen={!!bannerCrop}
+        imageSrc={bannerCrop?.dataUrl}
+        aspect={3}
+        outputWidth={1200}
+        title="Crop Store Banner"
+        onCancel={() => setBannerCrop(null)}
+        onApply={handleBannerApply}
+        onSkip={handleBannerSkipped}
+      />
     </form>
   );
 }

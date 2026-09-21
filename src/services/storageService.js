@@ -46,29 +46,33 @@ async function compressImage(file, maxWidth = 1200, quality = 0.8) {
 /**
  * Uploads a file to the 'store-assets' bucket in Supabase Storage.
  * Returns the permanent public URL.
+ *
+ * If the incoming file is already WebP (e.g. produced by our cropper),
+ * skip re-compression to avoid quality loss and save CPU.
  */
 export async function uploadStoreAsset(file, folder = 'branding') {
   if (!file) throw new Error('No file provided for upload.');
 
-  // 1. Client-side compression
-  const compressedBlob = await compressImage(file, folder === 'banners' ? 1400 : 800, 0.82);
+  // Already-WebP files came from our cropper — use directly
+  const alreadyWebp = file.type === 'image/webp' || file.name?.endsWith('.webp');
 
-  // 2. Generate unique filename
+  const blob = alreadyWebp
+    ? file
+    : await compressImage(file, folder === 'banners' ? 1400 : 800, 0.82);
+
   const timestamp = Date.now();
   const randomStr = Math.random().toString(36).substring(2, 7);
   const filePath = `${folder}/${timestamp}-${randomStr}.webp`;
 
-  // 3. Upload to Supabase 'store-assets'
-  const { data, error } = await supabase.storage
+  const { error } = await supabase.storage
     .from('store-assets')
-    .upload(filePath, compressedBlob, {
+    .upload(filePath, blob, {
       contentType: 'image/webp',
       upsert: true,
     });
 
   if (error) throw error;
 
-  // 4. Retrieve public URL
   const { data: publicUrlData } = supabase.storage
     .from('store-assets')
     .getPublicUrl(filePath);

@@ -20,6 +20,7 @@ import { createProduct, updateProduct, updateProductStock, deleteProduct, format
 import { uploadStoreAsset } from '../services/storageService';
 import { supabase } from '../supabase';
 import { notify } from '../components/Toast';
+import ImageCropper from './ImageCropper';
 
 const PRESET_COLOR_NAMES = ['Black', 'White', 'Navy', 'Beige', 'Olive', 'Brown', 'Maroon', 'Grey'];
 
@@ -433,6 +434,7 @@ const ProductModal = memo(function ProductModal({
   const [category, setCategory] = useState(editingProduct?.category || 'General');
   const [photoUrls, setPhotoUrls] = useState(editingProduct?.photo_urls || []);
   const [freeDelivery, setFreeDelivery] = useState(Boolean(editingProduct?.free_delivery));
+  const [pendingCrop, setPendingCrop] = useState(null);
 
   const initialVariants = editingProduct?.variants || [];
   const [hasVariants, setHasVariants] = useState(initialVariants.length > 0);
@@ -453,25 +455,110 @@ const ProductModal = memo(function ProductModal({
     return { profit: null, margin: null };
   }, [price, costPrice]);
 
+  const fileToDataUrl = (file) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
   const handlePhotoSelect = useCallback(async (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
+    e.target.value = '';
 
+    const available = 8 - photoUrls.length;
+    const toProcess = files.slice(0, available);
+    if (!toProcess.length) return;
+
+    // Preload all data URLs so the cropper opens instantly
+    const prepared = [];
+    for (const file of toProcess) {
+      try {
+        const dataUrl = await fileToDataUrl(file);
+        prepared.push({ file, dataUrl });
+      } catch (err) {
+        console.warn('Failed to read file', file.name, err);
+      }
+    }
+
+    if (!prepared.length) return;
+
+    // Start with the first — the rest queued
+    setPendingCrop({
+      current: prepared[0],
+      remaining: prepared.slice(1),
+      total: prepared.length,
+      index: 1,
+    });
+  }, [photoUrls.length]);
+
+  const uploadCroppedFile = async (blob, originalFile) => {
     setUploading(true);
     try {
-      const uploadedUrls = [];
-      for (const file of files.slice(0, 8 - photoUrls.length)) {
-        const url = await uploadStoreAsset(file, 'products');
-        uploadedUrls.push(url);
-      }
-      setPhotoUrls((prev) => [...prev, ...uploadedUrls]);
-      notify(`Uploaded ${uploadedUrls.length} image(s)!`);
+      const baseName = (originalFile?.name || 'photo').replace(/\.[^.]+$/, '');
+      const croppedFile = new File([blob], `${baseName}.webp`, { type: 'image/webp' });
+      const url = await uploadStoreAsset(croppedFile, 'products');
+      setPhotoUrls((prev) => [...prev, url]);
     } catch (err) {
       notify('Upload failed: ' + err.message, 'error');
     } finally {
       setUploading(false);
     }
-  }, [photoUrls.length]);
+  };
+
+  const advanceCropQueue = () => {
+    setPendingCrop((prev) => {
+      if (!prev || !prev.remaining.length) return null;
+      const [next, ...rest] = prev.remaining;
+      return {
+        current: next,
+        remaining: rest,
+        total: prev.total,
+        index: prev.index + 1,
+      };
+    });
+  };
+
+  const handleCropApply = async (blob) => {
+    if (!pendingCrop) return;
+    await uploadCroppedFile(blob, pendingCrop.current.file);
+    advanceCropQueue();
+  };
+
+  const handleCropSkip = async () => {
+    if (!pendingCrop) return;
+    setUploading(true);
+    try {
+      const url = await uploadStoreAsset(pendingCrop.current.file, 'products');
+      setPhotoUrls((prev) => [...prev, url]);
+    } catch (err) {
+      notify('Upload failed: ' + err.message, 'error');
+    } finally {
+      setUploading(false);
+    }
+    advanceCropQueue();
+  };
+
+  const handleCropSkipAll = async () => {
+    if (!pendingCrop) return;
+    const allRemaining = [pendingCrop.current, ...pendingCrop.remaining];
+    setPendingCrop(null);
+    setUploading(true);
+    try {
+      const urls = [];
+      for (const item of allRemaining) {
+        const url = await uploadStoreAsset(item.file, 'products');
+        urls.push(url);
+      }
+      setPhotoUrls((prev) => [...prev, ...urls]);
+    } catch (err) {
+      notify('Upload failed: ' + err.message, 'error');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const handleRemovePhoto = useCallback((idx) => {
     setPhotoUrls((prev) => prev.filter((_, i) => i !== idx));
@@ -800,6 +887,24 @@ const ProductModal = memo(function ProductModal({
             {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : editingProduct ? 'Save Changes' : 'Publish Product'}
           </button>
         </form>
+
+        <ImageCropper
+          isOpen={!!pendingCrop}
+          imageSrc={pendingCrop?.current?.dataUrl}
+          aspect={1}
+          outputWidth={1000}
+          title="Crop Product Photo"
+          sequenceLabel={
+            pendingCrop
+              ? `Photo ${pendingCrop.index} of ${pendingCrop.total}`
+              : null
+          }
+          remaining={pendingCrop?.remaining?.length || 0}
+          onCancel={() => setPendingCrop(null)}
+          onApply={handleCropApply}
+          onSkip={handleCropSkip}
+          onSkipAll={handleCropSkipAll}
+        />
       </div>
     </div>
   );
