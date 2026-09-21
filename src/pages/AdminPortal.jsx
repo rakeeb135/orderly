@@ -10,6 +10,7 @@ import {
   Trash2,
   X,
   History,
+  DollarSign,
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import {
@@ -20,6 +21,7 @@ import {
   toggleStoreActiveStatus,
   deleteSellerAdmin,
   fetchSubscriptionHistory,
+  updateSellerFee,
   formatLKR
 } from '../services/dbService';
 import { notify } from '../components/Toast';
@@ -35,6 +37,8 @@ export default function AdminPortal() {
   const [historyShop, setHistoryShop] = useState(null);
   const [historyEvents, setHistoryEvents] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [feeEditorShop, setFeeEditorShop] = useState(null);
+  const [newFee, setNewFee] = useState('');
   const navigate = useNavigate();
 
   const loadAllShops = async () => {
@@ -114,6 +118,35 @@ export default function AdminPortal() {
       setHistoryEvents([]);
     } finally {
       setHistoryLoading(false);
+    }
+  };
+
+  const handleOpenFeeEditor = (shop) => {
+    setFeeEditorShop(shop);
+    setNewFee(String(shop.monthly_fee ?? 2990));
+  };
+
+  const handleFeeSave = async (e) => {
+    e.preventDefault();
+    if (!feeEditorShop) return;
+
+    const parsed = parseInt(newFee, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      notify('Please enter a valid amount greater than 0.', 'error');
+      return;
+    }
+
+    setUpdatingId(feeEditorShop.id);
+    try {
+      const updated = await updateSellerFee(feeEditorShop.id, parsed);
+      setSellers(sellers.map((s) => (s.id === feeEditorShop.id ? { ...s, ...updated } : s)));
+      notify(`Fee updated to Rs. ${parsed.toLocaleString('en-LK')} for ${feeEditorShop.shop_name}.`);
+      setFeeEditorShop(null);
+      setNewFee('');
+    } catch (err) {
+      notify('Update failed: ' + err.message, 'error');
+    } finally {
+      setUpdatingId(null);
     }
   };
 
@@ -261,6 +294,7 @@ export default function AdminPortal() {
                   <th className="pb-3 px-4">Contact</th>
                   <th className="pb-3 px-4">Subscription Status</th>
                   <th className="pb-3 px-4">Expires</th>
+                  <th className="pb-3 px-4">Fee</th>
                   <th className="pb-3 px-4 text-right">Extend Access</th>
                   <th className="pb-3 pl-4 text-right">Actions</th>
                 </tr>
@@ -303,6 +337,20 @@ export default function AdminPortal() {
 
                       <td className="py-3.5 px-4 font-mono text-[11px] text-[#5A655D]">
                         {expiry ? expiry.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Never'}
+                      </td>
+
+                      <td className="py-3.5 px-4">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenFeeEditor(shop)}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#F4F6F4] hover:bg-stone-200 border border-[#E7EBE7] text-[11px] font-bold text-[#111813] transition active:scale-95"
+                          title="Edit monthly fee"
+                        >
+                          <DollarSign className="w-3 h-3 text-[#006241]" />
+                          <span className="font-mono">
+                            Rs. {(Number(shop.monthly_fee) || 2990).toLocaleString('en-LK')}
+                          </span>
+                        </button>
                       </td>
 
                       <td className="py-3.5 px-4 text-right">
@@ -378,6 +426,62 @@ export default function AdminPortal() {
           </div>
         </div>
 
+        {/* Fee Editor Modal */}
+        {feeEditorShop && (
+          <div className="fixed inset-0 bg-[#111813]/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-[28px] p-6 max-w-xs w-full shadow-2xl space-y-4 text-xs text-[#111813]">
+              <div className="flex justify-between items-center border-b pb-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-[#E8F0E9] flex items-center justify-center">
+                    <DollarSign className="w-4 h-4 text-[#006241]" />
+                  </div>
+                  <h3 className="font-extrabold text-sm">Monthly Fee</h3>
+                </div>
+                <button
+                  onClick={() => { setFeeEditorShop(null); setNewFee(''); }}
+                  className="text-stone-400 hover:text-black transition"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <p className="text-[#5A655D]">
+                Shop: <strong>{feeEditorShop.shop_name}</strong>
+              </p>
+
+              <form onSubmit={handleFeeSave} className="space-y-3">
+                <div>
+                  <label className="block font-semibold mb-1">Amount per 30 days (Rs.)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={newFee}
+                    onChange={(e) => setNewFee(e.target.value)}
+                    required
+                    autoFocus
+                    className="w-full px-3 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] focus:border-[#006241] focus:bg-white rounded-xl font-bold font-mono text-base outline-none transition"
+                  />
+                  <p className="text-[10px] text-[#5A655D] mt-1.5 leading-relaxed">
+                    Default is Rs. 2,990. Use this to give discounts to friends or early clients.
+                  </p>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={updatingId === feeEditorShop.id}
+                  className="w-full py-2.5 bg-[#006241] hover:bg-[#004F34] text-white font-bold rounded-xl active:scale-95 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {updatingId === feeEditorShop.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    'Save Fee'
+                  )}
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
         {/* History Modal */}
         {historyShop && (
           <div className="fixed inset-0 bg-[#111813]/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -443,6 +547,9 @@ export default function AdminPortal() {
                     } else if (ev.event_type === 'reactivate') {
                       title = 'Store reactivated';
                       detail = 'Manually reactivated by admin';
+                    } else if (ev.event_type === 'fee_change') {
+                      title = 'Monthly fee changed';
+                      detail = ev.notes || '';
                     }
 
                     return (

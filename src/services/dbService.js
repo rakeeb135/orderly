@@ -126,7 +126,6 @@ export async function createSeller({ authUserId, shopName, handle, email, whatsa
     throw error;
   }
 
-  // Log the initial signup (best-effort)
   await logSubscriptionEvent({
     sellerId: data.id,
     adminSellerId: null,
@@ -193,7 +192,6 @@ export async function createProduct({
   freeDelivery = false,
   productLimit = 500
 }) {
-  // 1. Enforce product limit
   const { count: currentCount, error: countErr } = await supabase
     .from('products')
     .select('id', { count: 'exact', head: true })
@@ -207,14 +205,12 @@ export async function createProduct({
     );
   }
 
-  // 2. Generate slug
   const slug = title
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '') + '-' + Math.random().toString(36).substring(2, 6);
 
-  // 3. Normalize stock fields
   const finalTrackStock = Boolean(trackStock);
   const finalStockCount = finalTrackStock
     ? Math.max(0, parseInt(stockCount, 10) || 0)
@@ -481,7 +477,6 @@ export async function createOrder({
     throw new Error('Valid 10-digit Sri Lankan phone number is required.');
   }
 
-  // ---- STOCK CHECK + DECREMENT (atomic, per item) ----
   const decrementedItems = [];
   try {
     for (const item of items) {
@@ -512,7 +507,6 @@ export async function createOrder({
     throw stockErr;
   }
 
-  // ---- CUSTOMER UPSERT ----
   const customer = await getOrCreateCustomer({
     sellerId,
     phone: cleanPhone,
@@ -526,7 +520,6 @@ export async function createOrder({
   const subtotal = items.reduce((sum, item) => sum + (Number(item.price) * (Number(item.quantity) || 1)), 0);
   const totalAmount = subtotal + Number(deliveryFee);
 
-  // ---- ORDER CODE ----
   const { data: codeResult, error: codeErr } = await supabase.rpc('next_order_code', {
     p_seller_id: sellerId,
   });
@@ -543,7 +536,6 @@ export async function createOrder({
 
   const orderCode = String(codeResult);
 
-  // ---- INSERT ORDER ----
   const { data: order, error: orderErr } = await supabase
     .from('orders')
     .insert([{
@@ -584,7 +576,6 @@ export async function createOrder({
     throw orderErr;
   }
 
-  // ---- LOW STOCK ALERTS ----
   for (const item of items) {
     if (!item.id) continue;
     const { data: currentProd } = await supabase
@@ -613,13 +604,11 @@ export async function createOrder({
     }
   }
 
-  // ---- CUSTOMER ORDER COUNT ----
   await supabase
     .from('customers')
     .update({ total_orders: (customer.total_orders || 0) + 1 })
     .eq('id', customer.id);
 
-  // ---- SELLER NOTIFICATION ----
   await createNotification(sellerId, {
     title: `New Order #${order.order_code || order.id.slice(0, 4)}`,
     message: `${order.customer_name} placed an order for ${formatLKR(order.total_amount)} (${order.payment_method}).`,
@@ -764,6 +753,18 @@ export async function extendSubscription(sellerId, daysToAdd) {
     daysAdded: Number(daysToAdd),
     oldExpiry,
     newExpiry,
+  });
+
+  const expiryDisplay = new Date(newExpiry).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+  await createNotification(sellerId, {
+    title: 'Subscription renewed',
+    message: `Your access has been extended by ${daysToAdd} day${daysToAdd === 1 ? '' : 's'}. New expiry: ${expiryDisplay}.`,
+    type: 'verification',
+    link: '/dashboard',
   });
 
   return data;
@@ -1361,11 +1362,6 @@ export async function fetchSubscriptionHistory(sellerId, limit = 50) {
 // DATA EXPORT (chunked, client-side)
 // ----------------------------------------------------
 
-/**
- * Fetch ALL orders for a seller, in chunks, without blowing
- * the database or the browser. Calls onProgress(loaded, total)
- * after each chunk.
- */
 export async function fetchAllOrdersForExport(sellerId, onProgress) {
   if (!sellerId) return [];
 
@@ -1388,7 +1384,6 @@ export async function fetchAllOrdersForExport(sellerId, onProgress) {
     all.push(...batch);
 
     if (total === null) {
-      // One extra query for exact count. Cheap, runs once.
       const { count } = await supabase
         .from('orders')
         .select('id', { count: 'exact', head: true })
@@ -1407,10 +1402,6 @@ export async function fetchAllOrdersForExport(sellerId, onProgress) {
   return all;
 }
 
-/**
- * Fetch all customers for a seller. Simpler — no chunking needed
- * since customers rarely exceed 1,000 per shop.
- */
 export async function fetchAllCustomersForExport(sellerId) {
   if (!sellerId) return [];
   const { data, error } = await supabase
@@ -1421,4 +1412,44 @@ export async function fetchAllCustomersForExport(sellerId) {
 
   if (error) throw error;
   return data || [];
+}
+
+// ----------------------------------------------------
+// PER-SELLER PRICING
+// ----------------------------------------------------
+
+export async function updateSellerFee(sellerId, newFee) {
+  const fee = Math.max(0, Math.round(Number(newFee) || 0));
+  if (fee === 0) {
+    throw new Error('Fee must be greater than 0.');
+  }
+
+  const { data: current, error: fetchErr } = await supabase
+    .from('sellers')
+    .select('monthly_fee')
+    .eq('id', sellerId)
+    .single();
+
+  if (fetchErr) throw fetchErr;
+
+  const oldFee = current?.monthly_fee;
+
+  const { data, error } = await supabase
+    .from('sellers')
+    .update({ monthly_fee: fee })
+    .eq('id', sellerId)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  const adminSellerId = await getCurrentAdminSellerId();
+  await logSubscriptionEvent({
+    sellerId,
+    adminSellerId,
+    eventType: 'fee_change',
+    notes: `Fee changed from Rs. ${oldFee ?? 'default'} to Rs. ${fee}`,
+  });
+
+  return data;
 }
