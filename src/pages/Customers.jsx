@@ -12,6 +12,7 @@ import {
   Loader2 
 } from 'lucide-react';
 import { fetchCustomers, updateCustomer, deleteCustomerSafe } from '../services/dbService';
+import { supabase } from '../supabase';
 import { notify } from '../components/Toast';
 
 const SL_DISTRICTS = [
@@ -57,7 +58,49 @@ export default function Customers({ seller }) {
   useEffect(() => {
     loadCustomers();
   }, [seller?.id]);
+  /* ---------------------------------------------------------------- */
+  /*  Realtime — customer list syncs live across tabs / devices        */
+  /* ---------------------------------------------------------------- */
+  useEffect(() => {
+    if (!seller?.id) return;
+    let isMounted = true;
 
+    const channelName = `customers-rt-${seller.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'customers',
+          filter: `seller_id=eq.${seller.id}`,
+        },
+        (payload) => {
+          if (!isMounted) return;
+          const { eventType, new: newRow, old: oldRow } = payload;
+
+          if (eventType === 'INSERT' && newRow?.id) {
+            setCustomers((prev) => {
+              if (prev.some((c) => c.id === newRow.id)) return prev;
+              return [newRow, ...prev];
+            });
+          } else if (eventType === 'UPDATE' && newRow?.id) {
+            setCustomers((prev) =>
+              prev.map((c) => (c.id === newRow.id ? { ...c, ...newRow } : c))
+            );
+          } else if (eventType === 'DELETE' && oldRow?.id) {
+            setCustomers((prev) => prev.filter((c) => c.id !== oldRow.id));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      supabase.removeChannel(channel);
+    };
+  }, [seller?.id]);
   const openEditModal = (cust) => {
     setEditingCustomer(cust);
     setEditName(cust.name || '');

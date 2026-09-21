@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { createProduct, updateProduct, updateProductStock, deleteProduct, formatLKR } from '../services/dbService';
 import { uploadStoreAsset } from '../services/storageService';
+import { supabase } from '../supabase';
 import { notify } from '../components/Toast';
 
 const PRESET_COLOR_NAMES = ['Black', 'White', 'Navy', 'Beige', 'Olive', 'Brown', 'Maroon', 'Grey'];
@@ -825,6 +826,50 @@ export default function Products({ seller, products = [], setProducts }) {
       return DEFAULT_CATEGORIES;
     }
   });
+
+  /* ---------------------------------------------------------------- */
+  /*  Realtime — products sync live across tabs / devices              */
+  /* ---------------------------------------------------------------- */
+  useEffect(() => {
+    if (!seller?.id || typeof setProducts !== 'function') return;
+    let isMounted = true;
+
+    const channelName = `products-rt-${seller.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'products',
+          filter: `seller_id=eq.${seller.id}`,
+        },
+        (payload) => {
+          if (!isMounted) return;
+          const { eventType, new: newRow, old: oldRow } = payload;
+
+          if (eventType === 'INSERT' && newRow?.id) {
+            setProducts((prev) => {
+              if (prev.some((p) => p.id === newRow.id)) return prev;
+              return [newRow, ...prev];
+            });
+          } else if (eventType === 'UPDATE' && newRow?.id) {
+            setProducts((prev) =>
+              prev.map((p) => (p.id === newRow.id ? { ...p, ...newRow } : p))
+            );
+          } else if (eventType === 'DELETE' && oldRow?.id) {
+            setProducts((prev) => prev.filter((p) => p.id !== oldRow.id));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      supabase.removeChannel(channel);
+    };
+  }, [seller?.id, setProducts]);
 
   const handleSaveCategory = useCallback((newCat) => {
     setSavedCategories((prev) => {

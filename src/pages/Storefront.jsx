@@ -26,6 +26,7 @@ import {
   triggerPushNotification,
   formatLKR,
 } from '../services/dbService';
+import { supabase } from '../supabase';
 
 // Stock helpers
 function isSoldOut(product) {
@@ -258,6 +259,34 @@ export default function Storefront() {
 
     setChosenSize(availableSizes.length === 1 ? availableSizes[0] : null);
     setChosenColor(availableColors.length === 1 ? availableColors[0] : null);
+
+    // Refresh stock count for this product in the background — cheap, single fetch.
+    // The atomic RPC at checkout still protects against overselling.
+    if (product?.id && product.track_stock) {
+      supabase
+        .from('products')
+        .select('stock_count, track_stock')
+        .eq('id', product.id)
+        .single()
+        .then(({ data }) => {
+          if (!data) return;
+          if (data.stock_count !== product.stock_count || data.track_stock !== product.track_stock) {
+            setSelectedProductView((prev) =>
+              prev && prev.id === product.id
+                ? { ...prev, stock_count: data.stock_count, track_stock: data.track_stock }
+                : prev
+            );
+            setProducts((prev) =>
+              prev.map((p) =>
+                p.id === product.id
+                  ? { ...p, stock_count: data.stock_count, track_stock: data.track_stock }
+                  : p
+              )
+            );
+          }
+        })
+        .catch(() => {});
+    }
   };
 
   const closeProductModal = () => {
@@ -383,6 +412,32 @@ export default function Storefront() {
     setCopied(false);
     if (!hasBankDetails) setPaymentMethod('COD');
     setShowCheckout(true);
+
+    // Refresh stock for items in cart in the background.
+    // If stock changed, show updated numbers next time the modal renders.
+    // The atomic RPC at order-create is what actually prevents overselling.
+    const cartProductIds = cart.map((i) => i.id).filter(Boolean);
+    if (cartProductIds.length) {
+      supabase
+        .from('products')
+        .select('id, stock_count, track_stock')
+        .in('id', cartProductIds)
+        .then(({ data }) => {
+          if (!data?.length) return;
+          setCart((prev) =>
+            prev.map((item) => {
+              const fresh = data.find((d) => d.id === item.id);
+              if (!fresh) return item;
+              return {
+                ...item,
+                stock_count: fresh.stock_count,
+                track_stock: fresh.track_stock,
+              };
+            })
+          );
+        })
+        .catch(() => {});
+    }
   };
 
   const closeCheckout = () => {
