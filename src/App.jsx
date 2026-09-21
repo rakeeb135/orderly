@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useOutletContext } from 'react-router-dom';
-import { Loader2, PhoneCall, ShieldAlert } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { supabase } from './supabase';
 import { fetchProducts, fetchCurrentSeller } from './services/dbService';
 
@@ -16,6 +16,7 @@ import Storefront from './pages/Storefront';
 import OrderTracker from './pages/OrderTracker';
 import AdminPortal from './pages/AdminPortal';
 import QuickOrder from './pages/QuickOrder';
+import Renewal from './pages/Renewal';
 
 function ProtectedShell() {
   const [seller, setSeller] = useState(null);
@@ -30,13 +31,9 @@ function ProtectedShell() {
       setLoading(false);
       return;
     }
-
     try {
       const sellerRow = await fetchCurrentSeller(authUserId);
-
       if (!sellerRow) {
-        // Auth user exists but no seller row.
-        // This can happen if signup half-failed. Sign out and let them retry.
         console.warn('[ProtectedShell] No seller row found for auth user', authUserId);
         await supabase.auth.signOut();
         setSeller(null);
@@ -44,7 +41,6 @@ function ProtectedShell() {
         setLoading(false);
         return;
       }
-
       setSeller(sellerRow);
       const prods = await fetchProducts(sellerRow.id);
       setProducts(prods);
@@ -58,13 +54,11 @@ function ProtectedShell() {
   useEffect(() => {
     let isMounted = true;
 
-    // 1. Read the initial session once
     supabase.auth.getSession().then(({ data }) => {
       if (!isMounted) return;
       loadSeller(data?.session?.user?.id);
     });
 
-    // 2. Subscribe to auth changes (login, logout, token refresh)
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!isMounted) return;
       loadSeller(session?.user?.id);
@@ -89,59 +83,40 @@ function ProtectedShell() {
     return <Navigate to="/login" replace />;
   }
 
-  // Subscription Expiry Check
-  const expiryDate = seller.subscription_expires_at ? new Date(seller.subscription_expires_at) : null;
-  const isExpired = expiryDate && expiryDate < new Date() && !seller.is_super_admin;
-
-  if (isExpired || seller.is_active === false) {
-    const renewalMsg = `Hi Rakeeb! I just transferred the Rs. 2,990 renewal fee for my shop "${seller.shop_name}" (Handle: ${seller.handle}). Here is my bank transfer slip:`;
-    const waLink = `https://wa.me/94769944414?text=${encodeURIComponent(renewalMsg)}`;
-
+  // Super admin: always has full access
+  if (seller.is_super_admin) {
     return (
-      <div className="min-h-screen bg-[#F4F6F4] flex items-center justify-center p-4 font-sans text-[#111813]">
-        <div className="max-w-md w-full bg-white border border-[#E7EBE7] rounded-[32px] p-6 shadow-sm space-y-4 text-center">
-          <div className="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center mx-auto text-amber-700">
-            <ShieldAlert className="w-7 h-7" />
-          </div>
-
-          <div>
-            <h1 className="text-xl font-black">Store Access Expired</h1>
-            <p className="text-xs text-[#5A655D] mt-1">
-              Your 14-day trial or monthly access period for <strong>{seller.shop_name}</strong> has ended.
-            </p>
-          </div>
-
-          <div className="bg-[#F4F6F4] border border-[#E7EBE7] rounded-2xl p-4 text-left text-xs space-y-2">
-            <div className="font-bold text-[#111813] border-b pb-1">Renew Access — Rs. 2,990 / 30 Days</div>
-            <div className="text-[11px] text-[#5A655D] space-y-1">
-              <div>Bank: <strong>Commercial Bank of Ceylon</strong></div>
-              <div>Account Name: <strong>M.T.M Rakeeb</strong></div>
-              <div>Account No: <strong>8012055155</strong></div>
-              <div>Branch: <strong>Kandy</strong></div>
-            </div>
-          </div>
-
-          <a
-            href={waLink}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-full py-3.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white font-bold rounded-2xl text-xs flex items-center justify-center gap-2 shadow-xs transition active:scale-95"
-          >
-            <PhoneCall className="w-4 h-4" /> Send Slip on WhatsApp
-          </a>
-
-          <button
-            onClick={async () => {
-              await supabase.auth.signOut();
-              navigate('/login');
-            }}
-            className="text-xs font-semibold text-[#5A655D] hover:underline"
-          >
-            Sign in to another account
-          </button>
-        </div>
-      </div>
+      <Layout
+        seller={seller}
+        setSeller={setSeller}
+        products={products}
+        setProducts={setProducts}
+        onOrderCreated={async () => {
+          if (seller?.id) {
+            const prods = await fetchProducts(seller.id);
+            setProducts(prods);
+          }
+        }}
+      />
     );
+  }
+
+  // Admin-suspended → always locked out
+  if (seller.is_active === false) {
+    return <Renewal seller={seller} variant="full" />;
+  }
+
+  // Expiry check → compute days remaining
+  if (seller.subscription_expires_at) {
+    const expiryDate = new Date(seller.subscription_expires_at);
+    const msRemaining = expiryDate.getTime() - Date.now();
+    const daysRemaining = Math.ceil(msRemaining / (1000 * 60 * 60 * 24));
+
+    // Locked out: 3+ days past expiry
+    if (daysRemaining <= -3) {
+      return <Renewal seller={seller} variant="full" />;
+    }
+    // Otherwise: -3 < daysRemaining <= 7 → grace/reminder handled by banner
   }
 
   return (
@@ -176,6 +151,7 @@ export default function App() {
           <Route path="/products" element={<ProductsWrapper />} />
           <Route path="/customers" element={<CustomersWrapper />} />
           <Route path="/settings" element={<SettingsWrapper />} />
+          <Route path="/renew" element={<RenewWrapper />} />
         </Route>
 
         {/* Public buyer-facing routes (order matters!) */}
@@ -217,4 +193,9 @@ function CustomersWrapper() {
 function SettingsWrapper() {
   const { seller, setSeller } = useOutletContext();
   return <Settings seller={seller} setSeller={setSeller} />;
+}
+
+function RenewWrapper() {
+  const { seller } = useOutletContext();
+  return <Renewal seller={seller} variant="embedded" />;
 }

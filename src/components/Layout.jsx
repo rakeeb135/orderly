@@ -16,6 +16,7 @@ import POSModal from './POSModal';
 import Toast from './Toast';
 import NotificationCenter from './NotificationCenter';
 import InstallAppModal from './InstallAppModal';
+import SubscriptionBanner from './SubscriptionBanner';
 
 /* ------------------------------------------------------------------ */
 /*  Viewport hook — mount only one NotificationCenter at a time        */
@@ -194,6 +195,7 @@ export default function Layout({ seller, setSeller, products, setProducts, onOrd
 
       {/* MAIN WORKSPACE */}
       <main className="flex-1 md:ml-64 p-4 sm:p-8 max-w-5xl mx-auto w-full pb-28 md:pb-8 md:pt-8">
+        <SubscriptionBanner seller={seller} />
         <Outlet context={{ seller, setSeller, products, setProducts, onOrderCreated, onOpenPOS: () => setShowPOS(true) }} />
       </main>
 
