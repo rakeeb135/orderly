@@ -18,6 +18,28 @@ function escapeCSVField(value) {
 }
 
 /**
+ * Force Excel (and compatible apps) to treat a value as TEXT, not a number.
+ *
+ * Why this exists: Excel silently converts numeric-looking values like
+ * "0787894565" into numbers, which drops leading zeros and shows
+ * scientific notation (7.88E+08). This wrapper prevents that.
+ *
+ * Also solves the "#######" issue when a date column is too narrow —
+ * Excel only shows hashes for dates/numbers, not text.
+ *
+ * Google Sheets, OnlyOffice, Numbers, and standard CSV parsers all
+ * interpret `="value"` as just `value`. Only raw text editors show
+ * the full syntax (which is correct CSV anyway).
+ */
+export function forceText(value) {
+  if (value === null || value === undefined || value === '') return '';
+  const str = String(value);
+  // Escape any embedded double-quotes by doubling them
+  const escaped = str.replace(/"/g, '""');
+  return `="${escaped}"`;
+}
+
+/**
  * Generate a CSV string from an array of row objects.
  * @param {Array<Object>} rows - array of row objects
  * @param {Array<{key:string,label:string,map?:function}>} columns - column definitions

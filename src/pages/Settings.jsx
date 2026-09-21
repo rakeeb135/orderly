@@ -33,6 +33,7 @@ import {
   datedFilename,
   formatDateForCSV,
   formatItemsForCSV,
+  forceText,
 } from '../utils/csvExport';
 import { notify } from '../components/Toast';
 
@@ -244,11 +245,11 @@ export default function Settings({ seller, setSeller }) {
 
       const columns = [
         { key: 'order_code', label: 'Order Code' },
-        { key: 'created_at', label: 'Date', map: (r) => formatDateForCSV(r.created_at) },
+        { key: 'created_at', label: 'Date', map: (r) => forceText(formatDateForCSV(r.created_at)) },
         { key: 'status', label: 'Status' },
         { key: 'customer_name', label: 'Customer Name' },
-        { key: 'customer_phone', label: 'Phone' },
-        { key: 'secondary_phone', label: 'Secondary Phone' },
+        { key: 'customer_phone', label: 'Phone', map: (r) => forceText(r.customer_phone) },
+        { key: 'secondary_phone', label: 'Secondary Phone', map: (r) => forceText(r.secondary_phone) },
         { key: 'delivery_address', label: 'Address' },
         { key: 'city', label: 'City' },
         { key: 'district', label: 'District' },
@@ -288,13 +289,13 @@ export default function Settings({ seller, setSeller }) {
 
       const columns = [
         { key: 'name', label: 'Name' },
-        { key: 'phone', label: 'Phone' },
-        { key: 'secondary_phone', label: 'Secondary Phone' },
+        { key: 'phone', label: 'Phone', map: (r) => forceText(r.phone) },
+        { key: 'secondary_phone', label: 'Secondary Phone', map: (r) => forceText(r.secondary_phone) },
         { key: 'delivery_address', label: 'Address' },
         { key: 'city', label: 'City' },
         { key: 'district', label: 'District' },
         { key: 'total_orders', label: 'Total Orders' },
-        { key: 'created_at', label: 'First Seen', map: (r) => formatDateForCSV(r.created_at) },
+        { key: 'created_at', label: 'First Seen', map: (r) => forceText(formatDateForCSV(r.created_at)) },
       ];
 
       const csv = generateCSV(customers, columns);
