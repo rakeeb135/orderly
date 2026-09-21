@@ -20,7 +20,7 @@ import { createProduct, updateProduct, updateProductStock, deleteProduct, format
 import { uploadStoreAsset } from '../services/storageService';
 import { supabase } from '../supabase';
 import { notify } from '../components/Toast';
-import ImageCropper from './ImageCropper';
+import ImageCropper from '../components/ImageCropper';
 
 const PRESET_COLOR_NAMES = ['Black', 'White', 'Navy', 'Beige', 'Olive', 'Brown', 'Maroon', 'Grey'];
 
