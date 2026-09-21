@@ -1173,3 +1173,82 @@ export async function deleteBuyerFlag(flagId) {
     .eq('id', flagId);
   if (error) throw error;
 }
+
+// ----------------------------------------------------
+// SERVER-SIDE PAGINATION (scales to 10k+ orders)
+// ----------------------------------------------------
+
+export async function getOrderCounts(sellerId) {
+  if (!sellerId) {
+    return { active: 0, received: 0, packed: 0, dispatched: 0, delivered: 0, canceled: 0 };
+  }
+  const { data, error } = await supabase.rpc('get_order_counts', {
+    p_seller_id: sellerId,
+  });
+  if (error) {
+    console.warn('getOrderCounts failed:', error.message);
+    return { active: 0, received: 0, packed: 0, dispatched: 0, delivered: 0, canceled: 0 };
+  }
+  return data || { active: 0, received: 0, packed: 0, dispatched: 0, delivered: 0, canceled: 0 };
+}
+
+export async function fetchOrdersPage(sellerId, {
+  tab = 'active',
+  search = '',
+  limit = 50,
+  offset = 0,
+} = {}) {
+  if (!sellerId) return { orders: [], total: 0 };
+  const { data, error } = await supabase.rpc('get_orders_page', {
+    p_seller_id: sellerId,
+    p_tab: tab,
+    p_search: search || null,
+    p_limit: limit,
+    p_offset: offset,
+  });
+  if (error) {
+    console.warn('fetchOrdersPage failed:', error.message);
+    throw error;
+  }
+  return {
+    orders: data?.orders || [],
+    total: data?.total || 0,
+  };
+}
+
+export async function getDashboardSummary(sellerId, timeframe = 'today') {
+  if (!sellerId) {
+    return {
+      total_sales: 0, order_count: 0, avg_order: 0,
+      pipeline_to_process: 0, pipeline_packed: 0,
+      pipeline_in_transit: 0, pipeline_delivered: 0,
+      waiting_on_buyer: 0,
+    };
+  }
+  const { data, error } = await supabase.rpc('get_dashboard_summary', {
+    p_seller_id: sellerId,
+    p_timeframe: timeframe,
+  });
+  if (error) {
+    console.warn('getDashboardSummary failed:', error.message);
+    return {
+      total_sales: 0, order_count: 0, avg_order: 0,
+      pipeline_to_process: 0, pipeline_packed: 0,
+      pipeline_in_transit: 0, pipeline_delivered: 0,
+      waiting_on_buyer: 0,
+    };
+  }
+  return data;
+}
+
+export async function fetchRecentOrders(sellerId, limit = 5) {
+  if (!sellerId) return [];
+  const { data, error } = await supabase
+    .from('orders')
+    .select('*')
+    .eq('seller_id', sellerId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data || [];
+}
