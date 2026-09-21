@@ -11,6 +11,9 @@ import {
   BellOff,
   Smartphone,
   Landmark,
+  Download,
+  FileSpreadsheet,
+  CheckCircle2,
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import {
@@ -20,6 +23,17 @@ import {
   unsubscribeFromPush,
 } from '../services/dbService';
 import { uploadStoreAsset } from '../services/storageService';
+import {
+  fetchAllOrdersForExport,
+  fetchAllCustomersForExport,
+} from '../services/dbService';
+import {
+  generateCSV,
+  downloadTextFile,
+  datedFilename,
+  formatDateForCSV,
+  formatItemsForCSV,
+} from '../utils/csvExport';
 import { notify } from '../components/Toast';
 
 // Official 25 Administrative Districts of Sri Lanka
@@ -70,6 +84,11 @@ export default function Settings({ seller, setSeller }) {
   // Push notification state
   const [pushStatus, setPushStatus] = useState('checking');
   const [pushBusy, setPushBusy] = useState(false);
+
+  // Data export state
+  const [exporting, setExporting] = useState(null); // 'orders' | 'customers' | null
+  const [exportProgress, setExportProgress] = useState({ loaded: 0, total: 0 });
+  const [lastExported, setLastExported] = useState(null); // 'orders' | 'customers' | null
 
   // File Input References
   const logoInputRef = useRef(null);
@@ -203,6 +222,91 @@ export default function Settings({ seller, setSeller }) {
       notify(err.message || 'Failed to save settings', 'error');
     } finally {
       setSaving(false);
+    }
+  };
+
+  /* ---------------------------------------------------------------- */
+  /*  Data export                                                      */
+  /* ---------------------------------------------------------------- */
+  const handleExportOrders = async () => {
+    if (!seller?.id || exporting) return;
+    setExporting('orders');
+    setExportProgress({ loaded: 0, total: 0 });
+    try {
+      const orders = await fetchAllOrdersForExport(seller.id, (loaded, total) => {
+        setExportProgress({ loaded, total });
+      });
+
+      if (!orders.length) {
+        notify('No orders to export yet.', 'error');
+        return;
+      }
+
+      const columns = [
+        { key: 'order_code', label: 'Order Code' },
+        { key: 'created_at', label: 'Date', map: (r) => formatDateForCSV(r.created_at) },
+        { key: 'status', label: 'Status' },
+        { key: 'customer_name', label: 'Customer Name' },
+        { key: 'customer_phone', label: 'Phone' },
+        { key: 'secondary_phone', label: 'Secondary Phone' },
+        { key: 'delivery_address', label: 'Address' },
+        { key: 'city', label: 'City' },
+        { key: 'district', label: 'District' },
+        { key: 'items', label: 'Items', map: (r) => formatItemsForCSV(r.items) },
+        { key: 'subtotal', label: 'Subtotal' },
+        { key: 'delivery_fee', label: 'Delivery Fee' },
+        { key: 'total_amount', label: 'Total' },
+        { key: 'payment_method', label: 'Payment Method' },
+        { key: 'payment_status', label: 'Payment Status' },
+        { key: 'source', label: 'Source' },
+      ];
+
+      const csv = generateCSV(orders, columns);
+      downloadTextFile(datedFilename('ordy-orders'), csv);
+
+      notify(`Exported ${orders.length} orders.`);
+      setLastExported('orders');
+      setTimeout(() => setLastExported(null), 3000);
+    } catch (err) {
+      notify('Export failed: ' + (err.message || 'Unknown error'), 'error');
+    } finally {
+      setExporting(null);
+      setExportProgress({ loaded: 0, total: 0 });
+    }
+  };
+
+  const handleExportCustomers = async () => {
+    if (!seller?.id || exporting) return;
+    setExporting('customers');
+    try {
+      const customers = await fetchAllCustomersForExport(seller.id);
+
+      if (!customers.length) {
+        notify('No customers to export yet.', 'error');
+        return;
+      }
+
+      const columns = [
+        { key: 'name', label: 'Name' },
+        { key: 'phone', label: 'Phone' },
+        { key: 'secondary_phone', label: 'Secondary Phone' },
+        { key: 'delivery_address', label: 'Address' },
+        { key: 'city', label: 'City' },
+        { key: 'district', label: 'District' },
+        { key: 'total_orders', label: 'Total Orders' },
+        { key: 'created_at', label: 'First Seen', map: (r) => formatDateForCSV(r.created_at) },
+      ];
+
+      const csv = generateCSV(customers, columns);
+      downloadTextFile(datedFilename('ordy-customers'), csv);
+
+      notify(`Exported ${customers.length} customers.`);
+      setLastExported('customers');
+      setTimeout(() => setLastExported(null), 3000);
+    } catch (err) {
+      notify('Export failed: ' + (err.message || 'Unknown error'), 'error');
+    } finally {
+      setExporting(null);
     }
   };
 
@@ -602,6 +706,105 @@ export default function Settings({ seller, setSeller }) {
             />
           </div>
         </div>
+      </div>
+
+      {/* YOUR DATA — exports */}
+      <div className="bg-white border border-[#E7EBE7] rounded-[28px] p-6 shadow-xs space-y-4 text-xs">
+        <div className="flex items-center gap-2 font-black text-sm text-[#111813]">
+          <FileSpreadsheet className="w-4 h-4 text-[#006241]" />
+          <span>Your Data</span>
+        </div>
+
+        <p className="text-[11px] text-[#5A655D] leading-relaxed">
+          Download a copy of your data anytime. Files are CSV format — open them in Excel, Google Sheets, or Numbers.
+        </p>
+
+        {/* Orders export */}
+        <div className="border border-[#E7EBE7] rounded-2xl p-4 space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-[#E8F0E9] flex items-center justify-center shrink-0">
+              <Download className="w-4 h-4 text-[#006241]" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="font-bold text-[#111813]">Orders</div>
+              <div className="text-[10px] text-[#5A655D] mt-0.5">
+                Every order with customer, address, items, payment status.
+              </div>
+            </div>
+          </div>
+
+          {exporting === 'orders' && exportProgress.total > 0 ? (
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-[10px] font-bold text-[#5A655D]">
+                <span>Exporting…</span>
+                <span className="font-mono">
+                  {exportProgress.loaded} / {exportProgress.total}
+                </span>
+              </div>
+              <div className="w-full h-1.5 bg-[#F4F4F5] rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-[#006241] transition-all duration-200"
+                  style={{
+                    width: `${Math.min(100, (exportProgress.loaded / exportProgress.total) * 100)}%`,
+                  }}
+                />
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={handleExportOrders}
+              disabled={!!exporting}
+              className={`w-full py-2.5 font-bold rounded-xl text-xs transition active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 ${
+                lastExported === 'orders'
+                  ? 'bg-[#E8F0E9] text-[#006241]'
+                  : 'bg-[#F4F6F4] hover:bg-stone-200 text-[#111813] border border-[#E7EBE7]'
+              }`}
+            >
+              {lastExported === 'orders' ? (
+                <><CheckCircle2 className="w-4 h-4" /> Downloaded</>
+              ) : (
+                <><Download className="w-4 h-4" /> Export Orders (CSV)</>
+              )}
+            </button>
+          )}
+        </div>
+
+        {/* Customers export */}
+        <div className="border border-[#E7EBE7] rounded-2xl p-4 space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-[#E8F0E9] flex items-center justify-center shrink-0">
+              <Download className="w-4 h-4 text-[#006241]" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="font-bold text-[#111813]">Customers</div>
+              <div className="text-[10px] text-[#5A655D] mt-0.5">
+                Every buyer profile with contact info and order count.
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleExportCustomers}
+            disabled={!!exporting}
+            className={`w-full py-2.5 font-bold rounded-xl text-xs transition active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 ${
+              lastExported === 'customers'
+                ? 'bg-[#E8F0E9] text-[#006241]'
+                : 'bg-[#F4F6F4] hover:bg-stone-200 text-[#111813] border border-[#E7EBE7]'
+            }`}
+          >
+            {lastExported === 'customers' ? (
+              <><CheckCircle2 className="w-4 h-4" /> Downloaded</>
+            ) : (
+              <><Download className="w-4 h-4" /> Export Customers (CSV)</>
+            )}
+          </button>
+        </div>
+
+        <p className="text-[10px] text-[#5A655D] italic leading-relaxed">
+          Exports include all records for your shop. Files are named with today's date so you can tell them apart.
+        </p>
       </div>
 
       {/* PAYMENT COLLECTION — BANK DETAILS */}

@@ -1356,3 +1356,69 @@ export async function fetchSubscriptionHistory(sellerId, limit = 50) {
   }
   return data || [];
 }
+
+// ----------------------------------------------------
+// DATA EXPORT (chunked, client-side)
+// ----------------------------------------------------
+
+/**
+ * Fetch ALL orders for a seller, in chunks, without blowing
+ * the database or the browser. Calls onProgress(loaded, total)
+ * after each chunk.
+ */
+export async function fetchAllOrdersForExport(sellerId, onProgress) {
+  if (!sellerId) return [];
+
+  const CHUNK = 500;
+  let offset = 0;
+  let total = null;
+  const all = [];
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('seller_id', sellerId)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + CHUNK - 1);
+
+    if (error) throw error;
+
+    const batch = data || [];
+    all.push(...batch);
+
+    if (total === null) {
+      // One extra query for exact count. Cheap, runs once.
+      const { count } = await supabase
+        .from('orders')
+        .select('id', { count: 'exact', head: true })
+        .eq('seller_id', sellerId);
+      total = count || 0;
+    }
+
+    if (typeof onProgress === 'function') {
+      onProgress(all.length, total);
+    }
+
+    if (batch.length < CHUNK) break;
+    offset += CHUNK;
+  }
+
+  return all;
+}
+
+/**
+ * Fetch all customers for a seller. Simpler — no chunking needed
+ * since customers rarely exceed 1,000 per shop.
+ */
+export async function fetchAllCustomersForExport(sellerId) {
+  if (!sellerId) return [];
+  const { data, error } = await supabase
+    .from('customers')
+    .select('*')
+    .eq('seller_id', sellerId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
