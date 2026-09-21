@@ -1,33 +1,24 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  TrendingUp,
-  ShoppingBag,
-  Clock,
-  ArrowRight,
-  Package,
-  Truck,
-  CheckCircle2,
-  AlertCircle,
-  Plus,
-  Loader2,
-  PackageCheck,
-  Layers,
+  TrendingUp, ShoppingBag, Clock, ArrowRight, Package, Truck,
+  CheckCircle2, AlertCircle, Plus, Loader2, PackageCheck, Layers,
   AlertTriangle,
 } from 'lucide-react';
-import { fetchOrders, getBulkBuyerTrust, formatLKR } from '../services/dbService';
+import {
+  getDashboardSummary,
+  fetchRecentOrders,
+  getBulkBuyerTrust,
+  formatLKR,
+} from '../services/dbService';
 import { normalizeSLPhone } from '../utils/phone';
 import { supabase } from '../supabase';
 
-/* ------------------------------------------------------------------ */
-/*  Relative timestamp helper                                          */
-/* ------------------------------------------------------------------ */
 function relativeTime(iso) {
   if (!iso) return '';
   const then = new Date(iso).getTime();
   const now = Date.now();
   const diff = Math.max(0, Math.floor((now - then) / 1000));
-
   if (diff < 45) return 'just now';
   if (diff < 60 * 60) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 60 * 60 * 24) return `${Math.floor(diff / 3600)}h ago`;
@@ -36,9 +27,6 @@ function relativeTime(iso) {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
-/* ------------------------------------------------------------------ */
-/*  Payment classification — buyer's turn?                             */
-/* ------------------------------------------------------------------ */
 function isAwaitingBuyer(ord) {
   if (ord.status !== 'received') return false;
   const isCOD = !ord.payment_method || ord.payment_method === 'COD';
@@ -56,155 +44,103 @@ const STATUS_PILL = {
   canceled: 'bg-rose-50 text-rose-700 border-rose-200',
 };
 
+const EMPTY_SUMMARY = {
+  total_sales: 0,
+  order_count: 0,
+  avg_order: 0,
+  pipeline_to_process: 0,
+  pipeline_packed: 0,
+  pipeline_in_transit: 0,
+  pipeline_delivered: 0,
+  waiting_on_buyer: 0,
+};
+
 export default function Dashboard({ seller }) {
   const navigate = useNavigate();
-  const [orders, setOrders] = useState([]);
+  const [summary, setSummary] = useState(EMPTY_SUMMARY);
+  const [recentOrders, setRecentOrders] = useState([]);
   const [timeframe, setTimeframe] = useState('today');
   const [loading, setLoading] = useState(true);
   const [trustMap, setTrustMap] = useState({});
 
   /* ---------------------------------------------------------------- */
-  /*  Initial load                                                     */
+  /*  Load summary + recent                                            */
   /* ---------------------------------------------------------------- */
-  useEffect(() => {
-    async function loadData() {
-      if (!seller?.id) return;
-      try {
-        setLoading(true);
-        const data = await fetchOrders(seller.id);
-        setOrders(data || []);
-      } catch (err) {
-        console.error('Dashboard load failed:', err);
-      } finally {
-        setLoading(false);
-      }
+  const loadData = async (showSpinner = false) => {
+    if (!seller?.id) return;
+    if (showSpinner) setLoading(true);
+    try {
+      const [sum, recent] = await Promise.all([
+        getDashboardSummary(seller.id, timeframe),
+        fetchRecentOrders(seller.id, 5),
+      ]);
+      setSummary(sum || EMPTY_SUMMARY);
+      setRecentOrders(recent || []);
+    } catch (err) {
+      console.error('Dashboard load failed:', err);
+    } finally {
+      if (showSpinner) setLoading(false);
     }
-    loadData();
-  }, [seller?.id]);
+  };
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!mounted) return;
+      await loadData(true);
+    })();
+    return () => { mounted = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seller?.id, timeframe]);
 
   /* ---------------------------------------------------------------- */
-  /*  Realtime subscription                                            */
+  /*  Trust lookup for recent orders only                              */
   /* ---------------------------------------------------------------- */
+  useEffect(() => {
+    if (!recentOrders.length) {
+      setTrustMap({});
+      return;
+    }
+    const phones = recentOrders.map((o) => o.customer_phone).filter(Boolean);
+    if (!phones.length) return;
+    let mounted = true;
+    getBulkBuyerTrust(phones)
+      .then((map) => { if (mounted) setTrustMap(map || {}); })
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, [recentOrders]);
+
+  /* ---------------------------------------------------------------- */
+  /*  Realtime — debounced refetch on any order change                 */
+  /* ---------------------------------------------------------------- */
+  const refetchTimerRef = useRef(null);
   useEffect(() => {
     if (!seller?.id) return;
     let isMounted = true;
 
-    const channelName = `dashboard-rt-${seller.id}-${Date.now()}-${Math.random()
-      .toString(36)
-      .slice(2, 8)}`;
-
+    const channelName = `dashboard-rt-${seller.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const channel = supabase
       .channel(channelName)
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'orders',
-          filter: `seller_id=eq.${seller.id}`,
-        },
-        (payload) => {
+        { event: '*', schema: 'public', table: 'orders', filter: `seller_id=eq.${seller.id}` },
+        () => {
           if (!isMounted) return;
-          const { eventType, new: newRow, old: oldRow } = payload;
-
-          if (eventType === 'INSERT' && newRow?.id) {
-            setOrders((prev) => {
-              if (prev.some((o) => o.id === newRow.id)) return prev;
-              return [newRow, ...prev];
-            });
-          } else if (eventType === 'UPDATE' && newRow?.id) {
-            setOrders((prev) =>
-              prev.map((o) => (o.id === newRow.id ? { ...o, ...newRow } : o))
-            );
-          } else if (eventType === 'DELETE' && oldRow?.id) {
-            setOrders((prev) => prev.filter((o) => o.id !== oldRow.id));
-          }
+          if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
+          refetchTimerRef.current = setTimeout(() => {
+            if (isMounted) loadData(false);
+          }, 400);
         }
       )
       .subscribe();
 
     return () => {
       isMounted = false;
+      if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
       supabase.removeChannel(channel);
     };
-  }, [seller?.id]);
-
-  /* ---------------------------------------------------------------- */
-  /*  Bulk trust lookup for recent orders                              */
-  /* ---------------------------------------------------------------- */
-  useEffect(() => {
-    if (!orders.length) return;
-    const phones = orders.map((o) => o.customer_phone).filter(Boolean);
-    if (!phones.length) return;
-
-    let mounted = true;
-    getBulkBuyerTrust(phones)
-      .then((map) => {
-        if (mounted) setTrustMap(map || {});
-      })
-      .catch(() => {});
-    return () => { mounted = false; };
-  }, [orders]);
-
-  /* ---------------------------------------------------------------- */
-  /*  Pipeline buckets — MUST match Orders page tab definitions        */
-  /* ---------------------------------------------------------------- */
-  const pipeline = useMemo(() => {
-    let toProcess = 0;
-    let packed = 0;
-    let inTransit = 0;
-    let delivered = 0;
-
-    orders.forEach((o) => {
-      if (o.status === 'received') { toProcess += 1; return; }
-      if (o.status === 'packed') { packed += 1; return; }
-      if (o.status === 'dispatched') { inTransit += 1; return; }
-      if (o.status === 'delivered') { delivered += 1; }
-    });
-
-    return { toProcess, packed, inTransit, delivered };
-  }, [orders]);
-
-  /* ---------------------------------------------------------------- */
-  /*  Waiting on buyer — subset of "To Process"                        */
-  /* ---------------------------------------------------------------- */
-  const waitingOnBuyer = useMemo(
-    () => orders.filter(isAwaitingBuyer).length,
-    [orders]
-  );
-
-  /* ---------------------------------------------------------------- */
-  /*  Timeframe-filtered sales metrics                                 */
-  /* ---------------------------------------------------------------- */
-  const { totalSales, orderCount, avgOrder } = useMemo(() => {
-    const now = new Date();
-    const filtered = orders.filter((o) => {
-      const d = new Date(o.created_at);
-      if (timeframe === 'today') return d.toDateString() === now.toDateString();
-      if (timeframe === 'week') {
-        const w = new Date();
-        w.setDate(now.getDate() - 7);
-        return d >= w;
-      }
-      if (timeframe === 'month') {
-        const m = new Date();
-        m.setDate(now.getDate() - 30);
-        return d >= m;
-      }
-      return true;
-    });
-
-    const sales = filtered
-      .filter((o) => o.status !== 'canceled')
-      .reduce((sum, o) => sum + Number(o.total_amount || 0), 0);
-
-    const count = filtered.length;
-    const avg = count > 0 ? sales / count : 0;
-
-    return { totalSales: sales, orderCount: count, avgOrder: avg };
-  }, [orders, timeframe]);
-
-  const recentOrders = useMemo(() => orders.slice(0, 5), [orders]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seller?.id, timeframe]);
 
   /* ---------------------------------------------------------------- */
   /*  Loading                                                          */
@@ -218,45 +154,17 @@ export default function Dashboard({ seller }) {
   }
 
   const pipelineItems = [
-    {
-      id: 'received',
-      label: 'To Process',
-      count: pipeline.toProcess,
-      icon: Layers,
-      color: 'text-amber-600',
-      bg: 'bg-amber-50',
-    },
-    {
-      id: 'packed',
-      label: 'Packed',
-      count: pipeline.packed,
-      icon: Package,
-      color: 'text-blue-600',
-      bg: 'bg-blue-50',
-    },
-    {
-      id: 'dispatched',
-      label: 'In Transit',
-      count: pipeline.inTransit,
-      icon: Truck,
-      color: 'text-purple-600',
-      bg: 'bg-purple-50',
-    },
-    {
-      id: 'delivered',
-      label: 'Delivered',
-      count: pipeline.delivered,
-      icon: CheckCircle2,
-      color: 'text-[#006241]',
-      bg: 'bg-emerald-50',
-    },
+    { id: 'received', label: 'To Process', count: summary.pipeline_to_process, icon: Layers, color: 'text-amber-600', bg: 'bg-amber-50' },
+    { id: 'packed', label: 'Packed', count: summary.pipeline_packed, icon: Package, color: 'text-blue-600', bg: 'bg-blue-50' },
+    { id: 'dispatched', label: 'In Transit', count: summary.pipeline_in_transit, icon: Truck, color: 'text-purple-600', bg: 'bg-purple-50' },
+    { id: 'delivered', label: 'Delivered', count: summary.pipeline_delivered, icon: CheckCircle2, color: 'text-[#006241]', bg: 'bg-emerald-50' },
   ];
+
+  const waitingOnBuyer = summary.waiting_on_buyer;
 
   return (
     <div className="space-y-4">
-      {/* ============================================================ */}
-      {/*  WELCOME CARD                                                 */}
-      {/* ============================================================ */}
+      {/* Welcome card */}
       <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-5 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="min-w-0">
@@ -265,34 +173,26 @@ export default function Dashboard({ seller }) {
             </h1>
             <p className="text-xs text-[#5A655D] mt-0.5">
               Store live at{' '}
-              <span className="font-mono font-bold text-[#006241]">
-                {window.location.host}/{seller?.handle}
-              </span>
+              <span className="font-mono font-bold text-[#006241]">{window.location.host}/{seller?.handle}</span>
             </p>
           </div>
 
           <div className="flex bg-[#F4F6F4] p-1 rounded-2xl border border-[#E7EBE7] text-xs font-bold shrink-0 self-start sm:self-auto">
             <button
               onClick={() => setTimeframe('today')}
-              className={`px-3 py-1.5 rounded-xl transition ${
-                timeframe === 'today' ? 'bg-white text-[#111813] shadow-xs' : 'text-[#5A655D]'
-              }`}
+              className={`px-3 py-1.5 rounded-xl transition ${timeframe === 'today' ? 'bg-white text-[#111813] shadow-xs' : 'text-[#5A655D]'}`}
             >
               Today
             </button>
             <button
               onClick={() => setTimeframe('week')}
-              className={`px-3 py-1.5 rounded-xl transition ${
-                timeframe === 'week' ? 'bg-white text-[#111813] shadow-xs' : 'text-[#5A655D]'
-              }`}
+              className={`px-3 py-1.5 rounded-xl transition ${timeframe === 'week' ? 'bg-white text-[#111813] shadow-xs' : 'text-[#5A655D]'}`}
             >
               Week
             </button>
             <button
               onClick={() => setTimeframe('month')}
-              className={`px-3 py-1.5 rounded-xl transition ${
-                timeframe === 'month' ? 'bg-white text-[#111813] shadow-xs' : 'text-[#5A655D]'
-              }`}
+              className={`px-3 py-1.5 rounded-xl transition ${timeframe === 'month' ? 'bg-white text-[#111813] shadow-xs' : 'text-[#5A655D]'}`}
             >
               Month
             </button>
@@ -300,9 +200,7 @@ export default function Dashboard({ seller }) {
         </div>
       </div>
 
-      {/* ============================================================ */}
-      {/*  PIPELINE SNAPSHOT — matches Orders tabs exactly                */}
-      {/* ============================================================ */}
+      {/* Pipeline snapshot */}
       <button
         onClick={() => navigate('/orders')}
         className="w-full bg-white border border-[#E7EBE7] rounded-[24px] shadow-xs hover:border-stone-300 transition active:scale-[0.995] group"
@@ -319,16 +217,11 @@ export default function Dashboard({ seller }) {
           {pipelineItems.map((item) => {
             const Icon = item.icon;
             return (
-              <div
-                key={item.id}
-                className="px-2 py-3.5 flex flex-col items-center gap-1.5"
-              >
+              <div key={item.id} className="px-2 py-3.5 flex flex-col items-center gap-1.5">
                 <div className={`w-8 h-8 rounded-xl ${item.bg} flex items-center justify-center`}>
                   <Icon className={`w-4 h-4 ${item.color}`} />
                 </div>
-                <div className="text-base font-black text-[#111813] leading-none">
-                  {item.count}
-                </div>
+                <div className="text-base font-black text-[#111813] leading-none">{item.count}</div>
                 <div className="text-[10px] font-bold text-[#5A655D] uppercase tracking-wider leading-none text-center">
                   {item.label}
                 </div>
@@ -338,47 +231,32 @@ export default function Dashboard({ seller }) {
         </div>
       </button>
 
-      {/* ============================================================ */}
-      {/*  METRIC ROW                                                   */}
-      {/* ============================================================ */}
+      {/* Metric row */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        {/* Gross Sales */}
         <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-4 shadow-xs space-y-1">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0">
               <TrendingUp className="w-3.5 h-3.5 text-[#006241]" />
             </div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#5A655D]">
-              Gross Sales
-            </span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#5A655D]">Gross Sales</span>
           </div>
-          <div className="text-xl font-black text-[#111813] truncate pt-1">
-            {formatLKR(totalSales)}
-          </div>
+          <div className="text-xl font-black text-[#111813] truncate pt-1">{formatLKR(summary.total_sales)}</div>
           <div className="text-[10px] text-[#5A655D]">
-            {orderCount} order{orderCount === 1 ? '' : 's'}
+            {summary.order_count} order{summary.order_count === 1 ? '' : 's'}
           </div>
         </div>
 
-        {/* Average Order */}
         <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-4 shadow-xs space-y-1">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
               <ShoppingBag className="w-3.5 h-3.5 text-blue-600" />
             </div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#5A655D]">
-              Avg Order
-            </span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#5A655D]">Avg Order</span>
           </div>
-          <div className="text-xl font-black text-[#111813] truncate pt-1">
-            {formatLKR(avgOrder)}
-          </div>
-          <div className="text-[10px] text-[#5A655D]">
-            Per transaction
-          </div>
+          <div className="text-xl font-black text-[#111813] truncate pt-1">{formatLKR(summary.avg_order)}</div>
+          <div className="text-[10px] text-[#5A655D]">Per transaction</div>
         </div>
 
-        {/* Waiting on Buyer */}
         <div className={`col-span-2 md:col-span-1 bg-white border rounded-[24px] p-4 shadow-xs space-y-1 ${
           waitingOnBuyer > 0 ? 'border-amber-200' : 'border-[#E7EBE7]'
         }`}>
@@ -386,30 +264,20 @@ export default function Dashboard({ seller }) {
             <div className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 ${
               waitingOnBuyer > 0 ? 'bg-amber-100' : 'bg-stone-100'
             }`}>
-              <Clock className={`w-3.5 h-3.5 ${
-                waitingOnBuyer > 0 ? 'text-amber-700' : 'text-stone-400'
-              }`} />
+              <Clock className={`w-3.5 h-3.5 ${waitingOnBuyer > 0 ? 'text-amber-700' : 'text-stone-400'}`} />
             </div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#5A655D]">
-              Waiting on Buyer
-            </span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#5A655D]">Waiting on Buyer</span>
           </div>
-          <div className={`text-xl font-black truncate pt-1 ${
-            waitingOnBuyer > 0 ? 'text-amber-600' : 'text-[#111813]'
-          }`}>
+          <div className={`text-xl font-black truncate pt-1 ${waitingOnBuyer > 0 ? 'text-amber-600' : 'text-[#111813]'}`}>
             {waitingOnBuyer}
           </div>
           <div className="text-[10px] text-[#5A655D]">
-            {waitingOnBuyer > 0
-              ? 'Not yet confirmed or paid'
-              : 'Nothing pending'}
+            {waitingOnBuyer > 0 ? 'Not yet confirmed or paid' : 'Nothing pending'}
           </div>
         </div>
       </div>
 
-      {/* ============================================================ */}
-      {/*  ATTENTION BANNER                                             */}
-      {/* ============================================================ */}
+      {/* Attention banner */}
       {waitingOnBuyer > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-[20px] p-3.5 flex items-center justify-between gap-3 shadow-xs">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -418,9 +286,7 @@ export default function Dashboard({ seller }) {
               <div className="font-bold text-xs text-amber-900 truncate">
                 {waitingOnBuyer} order{waitingOnBuyer > 1 ? 's' : ''} waiting on buyer
               </div>
-              <div className="text-[10px] text-amber-700 truncate">
-                Send WhatsApp reminders to unblock them
-              </div>
+              <div className="text-[10px] text-amber-700 truncate">Send WhatsApp reminders to unblock them</div>
             </div>
           </div>
           <Link
@@ -432,9 +298,7 @@ export default function Dashboard({ seller }) {
         </div>
       )}
 
-      {/* ============================================================ */}
-      {/*  RECENT ORDERS                                                */}
-      {/* ============================================================ */}
+      {/* Recent orders */}
       <div className="bg-white border border-[#E7EBE7] rounded-[24px] shadow-xs overflow-hidden">
         <div className="flex justify-between items-center px-5 pt-4 pb-3 border-b border-[#E7EBE7]">
           <h2 className="font-extrabold text-sm text-[#111813]">Recent Orders</h2>
@@ -453,9 +317,7 @@ export default function Dashboard({ seller }) {
             </div>
             <div className="space-y-1">
               <p className="font-bold text-xs text-stone-700">No orders yet</p>
-              <p className="text-[11px] text-[#5A655D]">
-                Place your first order to see it appear here.
-              </p>
+              <p className="text-[11px] text-[#5A655D]">Place your first order to see it appear here.</p>
             </div>
             <div className="flex items-center justify-center gap-2 pt-1">
               <button
@@ -483,6 +345,11 @@ export default function Dashboard({ seller }) {
               else if (o.status === 'received') statusLabel = 'Ready';
               else if (o.status === 'canceled') statusLabel = 'Returned';
 
+              const cleanPhone = normalizeSLPhone(o.customer_phone || '');
+              const trust = trustMap[cleanPhone];
+              const isFlagged = trust && trust.total_flags > 0;
+              const isHighRisk = isFlagged && (trust.total_flags >= 3 || (trust.total_flags >= 2 && trust.distinct_sellers >= 2));
+
               return (
                 <Link
                   key={o.id}
@@ -498,43 +365,22 @@ export default function Dashboard({ seller }) {
                         {statusLabel}
                       </span>
 
-                      {(() => {
-                        const cleanPhone = normalizeSLPhone(o.customer_phone || '');
-                        const trust = trustMap[cleanPhone];
-                        if (!trust || trust.total_flags === 0) return null;
-                        const isHighRisk =
-                          trust.total_flags >= 3 ||
-                          (trust.total_flags >= 2 && trust.distinct_sellers >= 2);
-                        return (
-                          <span
-                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold border ${
-                              isHighRisk
-                                ? 'bg-rose-50 text-rose-700 border-rose-300'
-                                : 'bg-amber-50 text-amber-700 border-amber-300'
-                            }`}
-                          >
-                            <AlertTriangle className="w-2.5 h-2.5" />
-                            Flagged
-                          </span>
-                        );
-                      })()}
+                      {isFlagged && (
+                        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold border ${
+                          isHighRisk ? 'bg-rose-50 text-rose-700 border-rose-300' : 'bg-amber-50 text-amber-700 border-amber-300'
+                        }`}>
+                          <AlertTriangle className="w-2.5 h-2.5" /> Flagged
+                        </span>
+                      )}
 
-                      <span className="text-[10px] text-stone-400 font-medium">
-                        {relativeTime(o.created_at)}
-                      </span>
+                      <span className="text-[10px] text-stone-400 font-medium">{relativeTime(o.created_at)}</span>
                     </div>
-                    <div className="text-xs font-semibold text-[#111813] truncate mt-0.5">
-                      {o.customer_name}
-                    </div>
-                    <div className="text-[10px] text-[#5A655D] font-mono truncate">
-                      {o.city || o.district}
-                    </div>
+                    <div className="text-xs font-semibold text-[#111813] truncate mt-0.5">{o.customer_name}</div>
+                    <div className="text-[10px] text-[#5A655D] font-mono truncate">{o.city || o.district}</div>
                   </div>
 
                   <div className="text-right shrink-0">
-                    <div className="font-black text-xs text-[#111813]">
-                      {formatLKR(o.total_amount)}
-                    </div>
+                    <div className="font-black text-xs text-[#111813]">{formatLKR(o.total_amount)}</div>
                     <div className="text-[9px] font-bold text-[#5A655D] uppercase tracking-wider">
                       {o.payment_method === 'COD' ? 'COD' : 'Bank'}
                     </div>

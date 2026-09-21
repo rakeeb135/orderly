@@ -1,110 +1,46 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import {
-  Search,
-  Printer,
-  CheckCircle2,
-  Clock,
-  Truck,
-  Package,
-  MessageCircle,
-  Loader2,
-  Plus,
-  Check,
-  Layers,
-  CheckSquare,
-  Square,
-  X,
-  ChevronRight,
-  ArrowRight,
-  Trash2,
-  RotateCcw,
-  Landmark,
-  PackageCheck,
-  AlertCircle,
+  Search, Printer, CheckCircle2, Clock, Truck, Package, MessageCircle,
+  Loader2, Plus, Check, Layers, CheckSquare, Square, X, ChevronRight,
+  ArrowRight, Trash2, RotateCcw, Landmark, PackageCheck, AlertCircle,
   AlertTriangle,
 } from 'lucide-react';
 import {
-  fetchOrders,
   updateOrderStatus,
   bulkUpdateOrderStatus,
   deleteOrdersBatch,
   getBulkBuyerTrust,
+  fetchOrdersPage,
+  getOrderCounts,
   formatLKR,
 } from '../services/dbService';
-import { normalizeSLPhone } from '../utils/phone';
 import { supabase } from '../supabase';
 import PrintManifestModal from '../components/PrintManifestModal';
 import { notify } from '../components/Toast';
+import { normalizeSLPhone } from '../utils/phone';
 
-/* ------------------------------------------------------------------ */
-/*  Tabs — vocabulary MUST match Dashboard pipeline buckets            */
-/* ------------------------------------------------------------------ */
+const PAGE_SIZE = 50;
+
 const PIPELINE_TABS = [
-  {
-    id: 'active',
-    label: 'Active',
-    icon: Layers,
-    emptyTitle: 'All caught up!',
-    emptyDesc: 'No active orders require your attention right now.',
-  },
-  {
-    id: 'received',
-    label: 'To Process',
-    icon: Clock,
-    emptyTitle: 'Nothing to process',
-    emptyDesc: 'New orders will appear here the moment they arrive.',
-  },
-  {
-    id: 'packed',
-    label: 'Packed',
-    icon: Package,
-    emptyTitle: 'Nothing packed yet',
-    emptyDesc: 'Orders you pack will show up here, ready for dispatch.',
-  },
-  {
-    id: 'dispatched',
-    label: 'In Transit',
-    icon: Truck,
-    emptyTitle: 'No orders in transit',
-    emptyDesc: 'Orders with couriers will show up here.',
-  },
-  {
-    id: 'delivered',
-    label: 'Delivered',
-    icon: CheckCircle2,
-    emptyTitle: 'No deliveries yet',
-    emptyDesc: 'Completed orders will show up here.',
-  },
-  {
-    id: 'canceled',
-    label: 'Returned',
-    icon: RotateCcw,
-    emptyTitle: 'No returns',
-    emptyDesc: 'Returned or cancelled orders will appear here.',
-  },
+  { id: 'active', label: 'Active', icon: Layers, emptyTitle: 'All caught up!', emptyDesc: 'No active orders require your attention right now.' },
+  { id: 'received', label: 'To Process', icon: Clock, emptyTitle: 'Nothing to process', emptyDesc: 'New orders will appear here the moment they arrive.' },
+  { id: 'packed', label: 'Packed', icon: Package, emptyTitle: 'Nothing packed yet', emptyDesc: 'Orders you pack will show up here, ready for dispatch.' },
+  { id: 'dispatched', label: 'In Transit', icon: Truck, emptyTitle: 'No orders in transit', emptyDesc: 'Orders with couriers will show up here.' },
+  { id: 'delivered', label: 'Delivered', icon: CheckCircle2, emptyTitle: 'No deliveries yet', emptyDesc: 'Completed orders will show up here.' },
+  { id: 'canceled', label: 'Returned', icon: RotateCcw, emptyTitle: 'No returns', emptyDesc: 'Returned or cancelled orders will appear here.' },
 ];
 
 const SRI_LANKAN_COURIERS = [
-  'Koombiyo Delivery',
-  'Domex',
-  'Pronto Lanka',
-  'Prompt X',
-  'Fardar Express',
-  'Certis Lanka',
-  'Courier.lk',
-  'Other / In-House Rider',
+  'Koombiyo Delivery', 'Domex', 'Pronto Lanka', 'Prompt X',
+  'Fardar Express', 'Certis Lanka', 'Courier.lk', 'Other / In-House Rider',
 ];
 
-/* ------------------------------------------------------------------ */
-/*  Relative timestamp                                                 */
-/* ------------------------------------------------------------------ */
 function relativeTime(iso) {
   if (!iso) return '';
   const then = new Date(iso).getTime();
   const now = Date.now();
   const diff = Math.max(0, Math.floor((now - then) / 1000));
-
   if (diff < 45) return 'just now';
   if (diff < 60 * 60) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 60 * 60 * 24) return `${Math.floor(diff / 3600)}h ago`;
@@ -113,46 +49,19 @@ function relativeTime(iso) {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
-/* ------------------------------------------------------------------ */
-/*  Sort priority — matches the seller's daily workflow               */
-/* ------------------------------------------------------------------ */
-function getSortPriority(ord) {
-  if (ord.status === 'canceled') return 60;
-  if (ord.status === 'delivered') return 50;
-  if (ord.status === 'dispatched') return 40;
-  if (ord.status === 'packed') return 30;
-
-  // status === 'received'
-  const isCOD = !ord.payment_method || ord.payment_method === 'COD';
-  const isBank = ord.payment_method === 'Bank';
-  const awaitingBankPay = isBank && ord.payment_status === 'Awaiting Payment';
-  const unverifiedCOD = isCOD && !ord.buyer_confirmed;
-
-  if (awaitingBankPay || unverifiedCOD) return 10;
-  return 20;
-}
-
-/* ------------------------------------------------------------------ */
-/*  Status accent stripe                                               */
-/* ------------------------------------------------------------------ */
 function statusStripe(ord) {
   if (ord.status === 'canceled') return 'bg-stone-300';
   if (ord.status === 'delivered') return 'bg-[#006241]';
   if (ord.status === 'dispatched') return 'bg-purple-500';
   if (ord.status === 'packed') return 'bg-blue-500';
-
   const isCOD = !ord.payment_method || ord.payment_method === 'COD';
   const isBank = ord.payment_method === 'Bank';
   const awaitingBankPay = isBank && ord.payment_status === 'Awaiting Payment';
   const unverifiedCOD = isCOD && !ord.buyer_confirmed;
-
   if (awaitingBankPay || unverifiedCOD) return 'bg-amber-500';
   return 'bg-emerald-500';
 }
 
-/* ------------------------------------------------------------------ */
-/*  Bulk pack eligibility                                              */
-/* ------------------------------------------------------------------ */
 function isEligibleForPack(ord) {
   if (ord.status !== 'received') return false;
   const isCOD = !ord.payment_method || ord.payment_method === 'COD';
@@ -163,27 +72,13 @@ function isEligibleForPack(ord) {
   return false;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Section header divider (used in "To Process" tab)                  */
-/* ------------------------------------------------------------------ */
 function SectionHeader({ tone, label, count }) {
   const map = {
-    waiting: {
-      text: 'text-amber-700',
-      bg: 'bg-amber-100',
-      line: 'bg-amber-200',
-      icon: AlertCircle,
-    },
-    ready: {
-      text: 'text-[#006241]',
-      bg: 'bg-emerald-100',
-      line: 'bg-emerald-200',
-      icon: Check,
-    },
+    waiting: { text: 'text-amber-700', bg: 'bg-amber-100', line: 'bg-amber-200', icon: AlertCircle },
+    ready: { text: 'text-[#006241]', bg: 'bg-emerald-100', line: 'bg-emerald-200', icon: Check },
   };
   const style = map[tone];
   const Icon = style.icon;
-
   return (
     <div className="flex items-center gap-2 pt-1">
       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md ${style.bg} ${style.text} text-[10px] font-bold uppercase tracking-wider`}>
@@ -196,16 +91,28 @@ function SectionHeader({ tone, label, count }) {
   );
 }
 
+function useDebounced(value, delay = 300) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
 export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
   const navigate = useNavigate();
-
   const outletContext = useOutletContext() || {};
   const onOpenPOS = propOnOpenPOS || outletContext.onOpenPOS;
 
   const [orders, setOrders] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [counts, setCounts] = useState({ active: 0, received: 0, packed: 0, dispatched: 0, delivered: 0, canceled: 0 });
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [activeTab, setActiveTab] = useState('active');
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearch = useDebounced(searchQuery, 300);
 
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedOrderIds, setSelectedOrderIds] = useState([]);
@@ -217,64 +124,159 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
   const [dispatchOrderTarget, setDispatchOrderTarget] = useState(null);
   const [selectedCourier, setSelectedCourier] = useState(SRI_LANKAN_COURIERS[0]);
   const [trackingNumber, setTrackingNumber] = useState('');
+
   const [trustMap, setTrustMap] = useState({});
 
-  const loadOrders = async () => {
+  // Refs so realtime reads the latest tab/search without re-subscribing
+  const tabRef = useRef(activeTab);
+  const searchRef = useRef(debouncedSearch);
+  useEffect(() => { tabRef.current = activeTab; }, [activeTab]);
+  useEffect(() => { searchRef.current = debouncedSearch; }, [debouncedSearch]);
+
+  /* ---------------------------------------------------------------- */
+  /*  Load first page whenever tab or search changes                   */
+  /* ---------------------------------------------------------------- */
+  const loadFirstPage = useCallback(async () => {
     if (!seller?.id) return;
+    setLoading(true);
     try {
-      setLoading(true);
-      const data = await fetchOrders(seller.id);
-      setOrders(data || []);
+      const [page, countsData] = await Promise.all([
+        fetchOrdersPage(seller.id, {
+          tab: activeTab,
+          search: debouncedSearch,
+          limit: PAGE_SIZE,
+          offset: 0,
+        }),
+        getOrderCounts(seller.id),
+      ]);
+      setOrders(page.orders);
+      setTotalCount(page.total);
+      setCounts(countsData);
     } catch (err) {
       notify('Failed to load orders: ' + err.message, 'error');
     } finally {
       setLoading(false);
     }
-  };
+  }, [seller?.id, activeTab, debouncedSearch]);
 
   useEffect(() => {
-    loadOrders();
-  }, [seller?.id]);
+    loadFirstPage();
+  }, [loadFirstPage]);
+
+  // Clear selection when filter changes
+  useEffect(() => {
+    setSelectedOrderIds([]);
+  }, [activeTab, debouncedSearch]);
 
   /* ---------------------------------------------------------------- */
-  /*  Realtime subscription                                            */
+  /*  Load More                                                        */
+  /* ---------------------------------------------------------------- */
+  const hasMore = orders.length < totalCount;
+
+  const handleLoadMore = async () => {
+    if (!seller?.id || loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const page = await fetchOrdersPage(seller.id, {
+        tab: activeTab,
+        search: debouncedSearch,
+        limit: PAGE_SIZE,
+        offset: orders.length,
+      });
+      setOrders((prev) => {
+        const existingIds = new Set(prev.map((o) => o.id));
+        const fresh = page.orders.filter((o) => !existingIds.has(o.id));
+        return [...prev, ...fresh];
+      });
+      setTotalCount(page.total);
+    } catch (err) {
+      notify('Failed to load more: ' + err.message, 'error');
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  /* ---------------------------------------------------------------- */
+  /*  Bulk trust lookup for visible phones                             */
+  /* ---------------------------------------------------------------- */
+  useEffect(() => {
+    if (!orders.length) {
+      setTrustMap({});
+      return;
+    }
+    const phones = orders.map((o) => o.customer_phone).filter(Boolean);
+    if (!phones.length) return;
+    let mounted = true;
+    getBulkBuyerTrust(phones)
+      .then((map) => { if (mounted) setTrustMap(map || {}); })
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, [orders]);
+
+  /* ---------------------------------------------------------------- */
+  /*  Realtime subscription (subscribes once per seller)               */
   /* ---------------------------------------------------------------- */
   useEffect(() => {
     if (!seller?.id) return;
     let isMounted = true;
 
-    const channelName = `orders-rt-${seller.id}-${Date.now()}-${Math.random()
-      .toString(36)
-      .slice(2, 8)}`;
-
+    const channelName = `orders-rt-${seller.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const channel = supabase
       .channel(channelName)
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'orders',
-          filter: `seller_id=eq.${seller.id}`,
-        },
+        { event: '*', schema: 'public', table: 'orders', filter: `seller_id=eq.${seller.id}` },
         (payload) => {
           if (!isMounted) return;
           const { eventType, new: newRow, old: oldRow } = payload;
+          const currentTab = tabRef.current;
+          const currentSearch = (searchRef.current || '').toLowerCase();
+
+          // Always refresh counts
+          getOrderCounts(seller.id).then((c) => {
+            if (isMounted) setCounts(c);
+          }).catch(() => {});
+
+          const matchesTab = (row) => currentTab === 'active'
+            ? row.status !== 'delivered' && row.status !== 'canceled'
+            : row.status === currentTab;
+
+          const matchesSearch = (row) => !currentSearch ||
+            row.order_code?.toLowerCase().includes(currentSearch) ||
+            row.customer_name?.toLowerCase().includes(currentSearch) ||
+            row.customer_phone?.includes(currentSearch) ||
+            row.city?.toLowerCase().includes(currentSearch) ||
+            row.district?.toLowerCase().includes(currentSearch);
 
           if (eventType === 'INSERT' && newRow?.id) {
-            setOrders((prev) => {
-              if (prev.some((o) => o.id === newRow.id)) return prev;
-              return [newRow, ...prev];
-            });
+            if (matchesTab(newRow) && matchesSearch(newRow)) {
+              setOrders((prev) => {
+                if (prev.some((o) => o.id === newRow.id)) return prev;
+                return [newRow, ...prev];
+              });
+              setTotalCount((t) => t + 1);
+            }
             if (newRow.source !== 'manual_pos') {
               notify(`New order #${newRow.order_code || newRow.id.slice(0, 4)} received!`);
             }
           } else if (eventType === 'UPDATE' && newRow?.id) {
-            setOrders((prev) =>
-              prev.map((o) => (o.id === newRow.id ? { ...o, ...newRow } : o))
-            );
+            setOrders((prev) => {
+              const inList = prev.some((o) => o.id === newRow.id);
+              const stillMatches = matchesTab(newRow) && matchesSearch(newRow);
+              if (inList && !stillMatches) {
+                return prev.filter((o) => o.id !== newRow.id);
+              }
+              if (!inList && stillMatches) {
+                return [newRow, ...prev];
+              }
+              if (inList) {
+                return prev.map((o) => (o.id === newRow.id ? { ...o, ...newRow } : o));
+              }
+              return prev;
+            });
           } else if (eventType === 'DELETE' && oldRow?.id) {
             setOrders((prev) => prev.filter((o) => o.id !== oldRow.id));
+            setTotalCount((t) => Math.max(0, t - 1));
           }
         }
       )
@@ -287,102 +289,11 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
   }, [seller?.id]);
 
   /* ---------------------------------------------------------------- */
-  /*  Bulk trust lookup — ONE query for all visible order phones       */
-  /* ---------------------------------------------------------------- */
-  useEffect(() => {
-    if (!orders.length) return;
-    const phones = orders.map((o) => o.customer_phone).filter(Boolean);
-    if (!phones.length) return;
-
-    let mounted = true;
-    getBulkBuyerTrust(phones)
-      .then((map) => {
-        if (mounted) setTrustMap(map || {});
-      })
-      .catch(() => {
-        /* silent — trust data is best-effort */
-      });
-    return () => { mounted = false; };
-  }, [orders]);
-
-  /* ---------------------------------------------------------------- */
-  /*  Counts per tab                                                   */
-  /* ---------------------------------------------------------------- */
-  const counts = useMemo(() => {
-    const map = { active: 0, received: 0, packed: 0, dispatched: 0, delivered: 0, canceled: 0 };
-    orders.forEach((o) => {
-      if (map[o.status] !== undefined) map[o.status] += 1;
-      if (o.status !== 'delivered' && o.status !== 'canceled') map.active += 1;
-    });
-    return map;
-  }, [orders]);
-
-  /* ---------------------------------------------------------------- */
-  /*  Filtered + sorted orders                                         */
-  /* ---------------------------------------------------------------- */
-  const filteredOrders = useMemo(() => {
-    const q = searchQuery.toLowerCase().trim();
-
-    return orders
-      .filter((o) => {
-        const matchTab =
-          activeTab === 'active'
-            ? o.status !== 'delivered' && o.status !== 'canceled'
-            : o.status === activeTab;
-
-        const matchQuery =
-          !q ||
-          o.order_code?.toLowerCase().includes(q) ||
-          o.customer_name?.toLowerCase().includes(q) ||
-          o.customer_phone?.includes(q) ||
-          o.city?.toLowerCase().includes(q) ||
-          o.district?.toLowerCase().includes(q);
-
-        return matchTab && matchQuery;
-      })
-      .sort((a, b) => {
-        const pa = getSortPriority(a);
-        const pb = getSortPriority(b);
-        if (pa !== pb) return pa - pb;
-        return new Date(b.created_at) - new Date(a.created_at);
-      });
-  }, [orders, activeTab, searchQuery]);
-
-  /* ---------------------------------------------------------------- */
-  /*  Grouped view for "To Process" tab                                */
-  /*  Splits received orders into Waiting on Buyer vs Ready to Pack     */
-  /* ---------------------------------------------------------------- */
-  const groupedView = useMemo(() => {
-    if (activeTab !== 'received') return null;
-    const waiting = [];
-    const ready = [];
-    filteredOrders.forEach((o) => {
-      if (isEligibleForPack(o)) ready.push(o);
-      else waiting.push(o);
-    });
-    return { waiting, ready };
-  }, [filteredOrders, activeTab]);
-
-  /* ---------------------------------------------------------------- */
-  /*  Bulk pack eligibility count                                      */
-  /* ---------------------------------------------------------------- */
-  const packableCount = useMemo(() => {
-    if (!selectedOrderIds.length) return 0;
-    return orders.filter(
-      (o) => selectedOrderIds.includes(o.id) && isEligibleForPack(o)
-    ).length;
-  }, [orders, selectedOrderIds]);
-
-  /* ---------------------------------------------------------------- */
   /*  Handlers                                                         */
   /* ---------------------------------------------------------------- */
   const handleNewOrderClick = () => {
-    if (typeof onOpenPOS === 'function') {
-      onOpenPOS();
-    } else {
-      console.warn('onOpenPOS handler is missing or not a function');
-      notify('POS Modal trigger unavailable', 'error');
-    }
+    if (typeof onOpenPOS === 'function') onOpenPOS();
+    else notify('POS Modal trigger unavailable', 'error');
   };
 
   const handleInlineAction = async (orderId, nextStatus, e) => {
@@ -400,6 +311,10 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
   };
 
   const handleBulkPack = async () => {
+    const packableCount = orders.filter(
+      (o) => selectedOrderIds.includes(o.id) && isEligibleForPack(o)
+    ).length;
+
     if (!packableCount) {
       notify('No eligible orders in selection — verify buyer or confirm payment first.', 'error');
       return;
@@ -408,21 +323,13 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
     setBulkPacking(true);
     try {
       const { updatedOrders, skipped } = await bulkUpdateOrderStatus(selectedOrderIds, 'packed');
-
-      setOrders((prev) =>
-        prev.map((o) => {
-          const upd = updatedOrders.find((u) => u.id === o.id);
-          return upd ? { ...o, ...upd } : o;
-        })
-      );
-
+      setOrders((prev) => prev.map((o) => {
+        const upd = updatedOrders.find((u) => u.id === o.id);
+        return upd ? { ...o, ...upd } : o;
+      }));
       const updatedCount = updatedOrders.length;
-      if (skipped > 0) {
-        notify(`${updatedCount} packed, ${skipped} skipped (not verified/paid).`);
-      } else {
-        notify(`${updatedCount} order${updatedCount === 1 ? '' : 's'} packed!`);
-      }
-
+      if (skipped > 0) notify(`${updatedCount} packed, ${skipped} skipped (not verified/paid).`);
+      else notify(`${updatedCount} order${updatedCount === 1 ? '' : 's'} packed!`);
       cancelSelectionMode();
     } catch (err) {
       notify('Bulk pack failed: ' + err.message, 'error');
@@ -437,7 +344,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
     try {
       const updated = await updateOrderStatus(dispatchOrderTarget.id, 'dispatched', {
         courierName: selectedCourier,
-        trackingNumber: trackingNumber.trim()
+        trackingNumber: trackingNumber.trim(),
       });
       setOrders((prev) => prev.map((o) => (o.id === dispatchOrderTarget.id ? { ...o, ...updated } : o)));
       notify('Order dispatched with tracking details!');
@@ -458,6 +365,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
     try {
       await deleteOrdersBatch(selectedOrderIds);
       setOrders((prev) => prev.filter((o) => !selectedOrderIds.includes(o.id)));
+      setTotalCount((t) => Math.max(0, t - selectedOrderIds.length));
       notify(`Successfully deleted ${selectedOrderIds.length} order(s).`);
       cancelSelectionMode();
     } catch (err) {
@@ -469,17 +377,12 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
 
   const toggleSelectOrder = (id, e) => {
     if (e) e.stopPropagation();
-    setSelectedOrderIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
-    );
+    setSelectedOrderIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   };
 
   const handleSelectAllToggle = () => {
-    if (selectedOrderIds.length === filteredOrders.length) {
-      setSelectedOrderIds([]);
-    } else {
-      setSelectedOrderIds(filteredOrders.map((o) => o.id));
-    }
+    if (selectedOrderIds.length === orders.length) setSelectedOrderIds([]);
+    else setSelectedOrderIds(orders.map((o) => o.id));
   };
 
   const cancelSelectionMode = () => {
@@ -487,14 +390,20 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
     setSelectedOrderIds([]);
   };
 
-  const selectedOrdersData = useMemo(() => {
-    return orders.filter((o) => selectedOrderIds.includes(o.id));
-  }, [orders, selectedOrderIds]);
+  const selectedOrdersData = useMemo(
+    () => orders.filter((o) => selectedOrderIds.includes(o.id)),
+    [orders, selectedOrderIds]
+  );
+
+  const packableCount = useMemo(
+    () => orders.filter((o) => selectedOrderIds.includes(o.id) && isEligibleForPack(o)).length,
+    [orders, selectedOrderIds]
+  );
 
   const activeTabMeta = PIPELINE_TABS.find((t) => t.id === activeTab);
 
   /* ---------------------------------------------------------------- */
-  /*  Order card renderer (extracted so it can be reused in groups)    */
+  /*  Order card                                                       */
   /* ---------------------------------------------------------------- */
   const renderOrderCard = (ord) => {
     const isSelected = selectedOrderIds.includes(ord.id);
@@ -515,15 +424,17 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
     const trackingUrl = `${window.location.origin}/order/${ord.id}`;
     const verifyMsg = `Hi ${ord.customer_name}! Please tap to confirm your order #${ord.order_code || ord.id.slice(0, 4)} from ${seller?.shop_name}: ${trackingUrl}`;
 
+    const cleanPhoneNorm = normalizeSLPhone(ord.customer_phone || '');
+    const trust = trustMap[cleanPhoneNorm];
+    const isFlagged = trust && trust.total_flags > 0;
+    const isHighRisk = isFlagged && (trust.total_flags >= 3 || (trust.total_flags >= 2 && trust.distinct_sellers >= 2));
+
     return (
       <div
         key={ord.id}
         onClick={() => {
-          if (isSelectionMode) {
-            toggleSelectOrder(ord.id);
-          } else {
-            navigate(`/orders/${ord.id}`);
-          }
+          if (isSelectionMode) toggleSelectOrder(ord.id);
+          else navigate(`/orders/${ord.id}`);
         }}
         className={`group relative bg-white border rounded-2xl transition-all duration-200 cursor-pointer overflow-hidden ${
           isSelected
@@ -542,13 +453,8 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                 type="button"
                 onClick={(e) => toggleSelectOrder(ord.id, e)}
                 className="shrink-0 pt-0.5 sm:pt-0 cursor-pointer"
-                aria-label={isSelected ? 'Deselect order' : 'Select order'}
               >
-                {isSelected ? (
-                  <CheckSquare className="w-5 h-5 text-[#006241]" />
-                ) : (
-                  <Square className="w-5 h-5 text-stone-300 hover:text-stone-500 transition" />
-                )}
+                {isSelected ? <CheckSquare className="w-5 h-5 text-[#006241]" /> : <Square className="w-5 h-5 text-stone-300 hover:text-stone-500 transition" />}
               </button>
             )}
 
@@ -577,50 +483,28 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                 )}
 
                 {ord.status === 'packed' && !isCanceled && (
-                  <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                    Packed
-                  </span>
+                  <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-blue-50 text-blue-700 border border-blue-200">Packed</span>
                 )}
                 {ord.status === 'dispatched' && !isCanceled && (
-                  <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
-                    In Transit
-                  </span>
+                  <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-purple-50 text-purple-700 border border-purple-200">In Transit</span>
                 )}
                 {ord.status === 'delivered' && !isCanceled && (
-                  <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-emerald-50 text-[#006241] border border-emerald-200">
-                    Delivered
-                  </span>
+                  <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-emerald-50 text-[#006241] border border-emerald-200">Delivered</span>
                 )}
                 {isCanceled && (
-                  <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-stone-100 text-stone-500 border border-stone-200">
-                    Returned
-                  </span>
+                  <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-stone-100 text-stone-500 border border-stone-200">Returned</span>
                 )}
 
-                {/* Flagged buyer warning — visible before opening the order */}
-                {(() => {
-                  const cleanPhone = normalizeSLPhone(ord.customer_phone || '');
-                  const trust = trustMap[cleanPhone];
-                  if (!trust || trust.total_flags === 0) return null;
-                  const isHighRisk =
-                    trust.total_flags >= 3 ||
-                    (trust.total_flags >= 2 && trust.distinct_sellers >= 2);
-                  return (
-                    <span
-                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold border ${
-                        isHighRisk
-                          ? 'bg-rose-50 text-rose-700 border-rose-300'
-                          : 'bg-amber-50 text-amber-700 border-amber-300'
-                      }`}
-                      title={`${trust.total_flags} report${
-                        trust.total_flags === 1 ? '' : 's'
-                      } from other Ordy sellers`}
-                    >
-                      <AlertTriangle className="w-2.5 h-2.5" />
-                      Flagged
-                    </span>
-                  );
-                })()}
+                {isFlagged && (
+                  <span
+                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold border ${
+                      isHighRisk ? 'bg-rose-50 text-rose-700 border-rose-300' : 'bg-amber-50 text-amber-700 border-amber-300'
+                    }`}
+                    title={`${trust.total_flags} report${trust.total_flags === 1 ? '' : 's'} from other Ordy sellers`}
+                  >
+                    <AlertTriangle className="w-2.5 h-2.5" /> Flagged
+                  </span>
+                )}
 
                 <span className="text-[10px] text-stone-400 font-medium ml-auto sm:ml-0">
                   {relativeTime(ord.created_at)}
@@ -628,19 +512,9 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
               </div>
 
               <div className="text-xs truncate">
-                <span className={`font-semibold ${isCanceled ? 'text-stone-400' : 'text-[#18181B]'}`}>
-                  {ord.customer_name}
-                </span>
-                {ord.customer_phone && (
-                  <span className="text-[10px] font-mono text-stone-400 ml-1.5">
-                    {ord.customer_phone}
-                  </span>
-                )}
-                {(ord.city || ord.district) && (
-                  <span className="text-[10px] text-stone-400 ml-1.5">
-                    · {ord.district || ord.city}
-                  </span>
-                )}
+                <span className={`font-semibold ${isCanceled ? 'text-stone-400' : 'text-[#18181B]'}`}>{ord.customer_name}</span>
+                {ord.customer_phone && <span className="text-[10px] font-mono text-stone-400 ml-1.5">{ord.customer_phone}</span>}
+                {(ord.city || ord.district) && <span className="text-[10px] text-stone-400 ml-1.5">· {ord.district || ord.city}</span>}
               </div>
 
               {items.length > 0 && (
@@ -653,12 +527,8 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                       {i < visibleItems.length - 1 && <span className="text-stone-300">·</span>}
                     </React.Fragment>
                   ))}
-                  {extraItems > 0 && (
-                    <span className="text-[#006241] font-bold">+{extraItems} more</span>
-                  )}
-                  {items.length === 1 && totalQty > 1 && (
-                    <span className="text-stone-400">({totalQty} items)</span>
-                  )}
+                  {extraItems > 0 && <span className="text-[#006241] font-bold">+{extraItems} more</span>}
+                  {items.length === 1 && totalQty > 1 && <span className="text-stone-400">({totalQty} items)</span>}
                 </div>
               )}
             </div>
@@ -670,12 +540,8 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                 isCanceled ? 'text-stone-400 line-through'
                 : isAwaitingPayment ? 'text-amber-700'
                 : 'text-[#18181B]'
-              }`}>
-                {formatLKR(ord.total_amount)}
-              </div>
-              <div className={`text-[9px] font-bold uppercase tracking-wider ${
-                isCOD ? 'text-amber-600' : 'text-emerald-600'
-              }`}>
+              }`}>{formatLKR(ord.total_amount)}</div>
+              <div className={`text-[9px] font-bold uppercase tracking-wider ${isCOD ? 'text-amber-600' : 'text-emerald-600'}`}>
                 {isCOD ? 'COD' : 'Bank'}
               </div>
             </div>
@@ -686,7 +552,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                   href={`https://wa.me/${cleanPhone}?text=${encodeURIComponent(verifyMsg)}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  title="Send WhatsApp confirmation"
                   className="px-2.5 py-1.5 bg-[#E8F0E9] hover:bg-[#D5E5D7] text-[#006241] rounded-xl text-xs font-bold transition active:scale-95 flex items-center gap-1.5 cursor-pointer"
                 >
                   <MessageCircle className="w-3.5 h-3.5" />
@@ -701,11 +566,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                   onClick={(e) => handleInlineAction(ord.id, 'packed', e)}
                   className="px-2.5 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-xs font-bold transition active:scale-95 flex items-center gap-1 shadow-xs disabled:opacity-50 cursor-pointer"
                 >
-                  {isBusy ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <>Pack <ArrowRight className="w-3 h-3" /></>
-                  )}
+                  {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <>Pack <ArrowRight className="w-3 h-3" /></>}
                 </button>
               )}
 
@@ -716,11 +577,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                   onClick={(e) => { e.stopPropagation(); setDispatchOrderTarget(ord); }}
                   className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition active:scale-95 flex items-center gap-1 shadow-xs disabled:opacity-50 cursor-pointer"
                 >
-                  {isBusy ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <>Dispatch <Truck className="w-3.5 h-3" /></>
-                  )}
+                  {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <>Dispatch <Truck className="w-3.5 h-3" /></>}
                 </button>
               )}
 
@@ -735,11 +592,25 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
   };
 
   /* ---------------------------------------------------------------- */
+  /*  Grouped view for "To Process" tab                                */
+  /* ---------------------------------------------------------------- */
+  const groupedView = useMemo(() => {
+    if (activeTab !== 'received') return null;
+    const waiting = [];
+    const ready = [];
+    orders.forEach((o) => {
+      if (isEligibleForPack(o)) ready.push(o);
+      else waiting.push(o);
+    });
+    return { waiting, ready };
+  }, [orders, activeTab]);
+
+  /* ---------------------------------------------------------------- */
   /*  Render                                                           */
   /* ---------------------------------------------------------------- */
   return (
     <div className="space-y-4 pb-32 text-[#18181B] max-w-5xl mx-auto">
-      {/* HEADER */}
+      {/* Header */}
       <div className="bg-white border border-[#E4E4E7] rounded-[24px] p-4 sm:p-5 shadow-2xs space-y-3">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
           <div className="min-w-0">
@@ -749,9 +620,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                 {counts.active} active
               </span>
             </div>
-            <p className="text-[11px] text-[#71717A] mt-0.5">
-              Manage, track, and fulfill customer orders
-            </p>
+            <p className="text-[11px] text-[#71717A] mt-0.5">Manage, track, and fulfill customer orders</p>
           </div>
 
           <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -777,12 +646,15 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
           </div>
         </div>
 
-        {filteredOrders.length > 0 && (
+        {orders.length > 0 && (
           <div className="flex items-center justify-between pt-3 border-t border-[#E4E4E7] text-xs">
             <div className="text-[#71717A] font-medium">
-              <span className="font-bold text-[#18181B]">{filteredOrders.length}</span>{' '}
-              order{filteredOrders.length === 1 ? '' : 's'}
-              {searchQuery && <span className="text-stone-400"> · filtered</span>}
+              <span className="font-bold text-[#18181B]">{totalCount}</span>{' '}
+              order{totalCount === 1 ? '' : 's'}
+              {debouncedSearch && <span className="text-stone-400"> · filtered</span>}
+              {orders.length < totalCount && (
+                <span className="text-stone-400"> · showing {orders.length}</span>
+              )}
             </div>
 
             {isSelectionMode ? (
@@ -792,7 +664,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                   onClick={handleSelectAllToggle}
                   className="font-bold text-[#006241] hover:underline cursor-pointer"
                 >
-                  {selectedOrderIds.length === filteredOrders.length ? 'Deselect all' : 'Select all'}
+                  {selectedOrderIds.length === orders.length ? 'Deselect all' : 'Select all'}
                 </button>
                 <span className="text-stone-300">·</span>
                 <button
@@ -817,13 +689,12 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
         )}
       </div>
 
-      {/* TABS */}
+      {/* Tabs */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none -mx-1 px-1">
         {PIPELINE_TABS.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           const count = counts[tab.id] || 0;
-
           return (
             <button
               key={tab.id}
@@ -848,56 +719,61 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
         })}
       </div>
 
-      {/* ORDERS LIST */}
+      {/* List */}
       {loading ? (
         <div className="bg-white border border-[#E4E4E7] rounded-[24px] p-16 flex justify-center items-center">
           <Loader2 className="w-6 h-6 text-[#006241] animate-spin" />
         </div>
-      ) : filteredOrders.length === 0 ? (
+      ) : orders.length === 0 ? (
         <div className="bg-white border border-[#E4E4E7] rounded-[24px] p-14 text-center space-y-3">
           <div className="w-12 h-12 rounded-2xl bg-[#F4F4F5] flex items-center justify-center mx-auto">
             <Package className="w-5 h-5 text-stone-400" />
           </div>
           <div className="space-y-1">
             <p className="font-black text-sm text-[#18181B]">
-              {searchQuery ? 'No matches found' : (activeTabMeta?.emptyTitle || 'Nothing here')}
+              {debouncedSearch ? 'No matches found' : (activeTabMeta?.emptyTitle || 'Nothing here')}
             </p>
             <p className="text-[11px] text-[#71717A] max-w-xs mx-auto">
-              {searchQuery
-                ? 'Try a different keyword or clear the search.'
-                : (activeTabMeta?.emptyDesc || 'Orders will appear here when they arrive.')}
+              {debouncedSearch ? 'Try a different keyword or clear the search.' : (activeTabMeta?.emptyDesc || 'Orders will appear here when they arrive.')}
             </p>
           </div>
         </div>
       ) : groupedView ? (
-        /* ---- Grouped view for "To Process" tab ---- */
         <div className="space-y-2">
           {groupedView.waiting.length > 0 && (
-            <SectionHeader
-              tone="waiting"
-              label="Waiting on Buyer"
-              count={groupedView.waiting.length}
-            />
+            <SectionHeader tone="waiting" label="Waiting on Buyer" count={groupedView.waiting.length} />
           )}
           {groupedView.waiting.map(renderOrderCard)}
-
           {groupedView.ready.length > 0 && (
-            <SectionHeader
-              tone="ready"
-              label="Ready to Pack"
-              count={groupedView.ready.length}
-            />
+            <SectionHeader tone="ready" label="Ready to Pack" count={groupedView.ready.length} />
           )}
           {groupedView.ready.map(renderOrderCard)}
         </div>
       ) : (
-        /* ---- Flat list for all other tabs ---- */
         <div className="space-y-2">
-          {filteredOrders.map(renderOrderCard)}
+          {orders.map(renderOrderCard)}
         </div>
       )}
 
-      {/* DISPATCH MODAL */}
+      {/* Load more */}
+      {!loading && hasMore && (
+        <div className="flex justify-center pt-1">
+          <button
+            type="button"
+            onClick={handleLoadMore}
+            disabled={loadingMore}
+            className="px-5 py-2.5 bg-white hover:bg-stone-50 border border-[#E4E4E7] hover:border-stone-400 rounded-2xl text-xs font-bold text-[#18181B] transition active:scale-95 disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+          >
+            {loadingMore ? (
+              <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…</>
+            ) : (
+              <>Load more · {totalCount - orders.length} remaining</>
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* Dispatch modal */}
       {dispatchOrderTarget && (
         <div className="fixed inset-0 bg-[#18181B]/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-[24px] max-w-sm w-full shadow-2xl text-xs text-[#18181B] overflow-hidden">
@@ -916,7 +792,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
               <button
                 onClick={() => setDispatchOrderTarget(null)}
                 className="p-1.5 -m-1.5 text-stone-400 hover:text-black transition cursor-pointer"
-                aria-label="Close"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -924,24 +799,18 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
 
             <div className="p-5 space-y-4">
               <div className="space-y-1.5">
-                <label className="block font-bold text-[11px] uppercase tracking-wider text-[#71717A]">
-                  Courier Company
-                </label>
+                <label className="block font-bold text-[11px] uppercase tracking-wider text-[#71717A]">Courier Company</label>
                 <select
                   value={selectedCourier}
                   onChange={(e) => setSelectedCourier(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-[#F4F4F5] border border-transparent focus:border-[#006241] focus:bg-white rounded-xl font-semibold text-xs outline-none transition cursor-pointer"
                 >
-                  {SRI_LANKAN_COURIERS.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
+                  {SRI_LANKAN_COURIERS.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
 
               <div className="space-y-1.5">
-                <label className="block font-bold text-[11px] uppercase tracking-wider text-[#71717A]">
-                  Tracking / Waybill No.
-                </label>
+                <label className="block font-bold text-[11px] uppercase tracking-wider text-[#71717A]">Tracking / Waybill No.</label>
                 <input
                   type="text"
                   value={trackingNumber}
@@ -970,7 +839,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
         </div>
       )}
 
-      {/* FLOATING BATCH BAR */}
+      {/* Batch bar */}
       {selectedOrderIds.length > 0 && (
         <div className="fixed bottom-20 sm:bottom-6 left-4 right-4 max-w-lg mx-auto bg-[#18181B] text-white p-2.5 pl-4 rounded-[20px] shadow-2xl shadow-stone-900/30 flex items-center justify-between gap-2 z-40 border border-stone-800/80 backdrop-blur">
           <div className="leading-tight shrink-0">
@@ -997,7 +866,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                 onClick={handleBulkPack}
                 disabled={bulkPacking}
                 className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 active:scale-95 transition disabled:opacity-50 cursor-pointer"
-                title="Mark all eligible orders as packed"
               >
                 {bulkPacking ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -1031,7 +899,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
               type="button"
               onClick={cancelSelectionMode}
               className="p-2 text-stone-400 hover:text-white transition cursor-pointer"
-              aria-label="Cancel selection"
             >
               <X className="w-4 h-4" />
             </button>
@@ -1039,7 +906,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
         </div>
       )}
 
-      {/* PRINT MODAL */}
+      {/* Print modal */}
       {showPrintModal && (
         <PrintManifestModal
           isOpen={showPrintModal}
