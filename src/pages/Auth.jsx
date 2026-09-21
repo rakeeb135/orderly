@@ -1,9 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { createSeller } from '../services/dbService';
 import { normalizeSLPhone, isValidSLPhone } from '../utils/phone';
+import OrdyLogo from '../components/OrdyLogo';
+
+const FEATURES = [
+  'Track every order in one dashboard',
+  'Alert buyers with one-tap WhatsApp links',
+  'Print labels, thermal stickers, and courier manifests',
+  'Protect yourself from bad COD buyers',
+];
 
 export default function Auth() {
   const [isRegistering, setIsRegistering] = useState(false);
@@ -14,9 +22,9 @@ export default function Auth() {
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
   const navigate = useNavigate();
 
-  // If already logged in, redirect to dashboard
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (data?.session) {
@@ -28,6 +36,7 @@ export default function Auth() {
   const handleLogin = async (e) => {
     e.preventDefault();
     setErrorMsg('');
+    setSuccessMsg('');
     setLoading(true);
 
     try {
@@ -43,7 +52,6 @@ export default function Auth() {
         throw new Error(error.message || 'Login failed.');
       }
 
-      // Session created. ProtectedShell will pick it up via onAuthStateChange.
       navigate('/dashboard');
     } catch (err) {
       setErrorMsg(err.message || 'Login failed.');
@@ -55,6 +63,7 @@ export default function Auth() {
   const handleRegister = async (e) => {
     e.preventDefault();
     setErrorMsg('');
+    setSuccessMsg('');
     setLoading(true);
 
     try {
@@ -66,7 +75,6 @@ export default function Auth() {
         throw new Error('Please enter a valid 10-digit Sri Lankan phone number.');
       }
 
-      // 1. Create the auth user account
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: cleanEmail,
         password: password,
@@ -83,7 +91,6 @@ export default function Auth() {
         throw new Error('Could not create account. Try again.');
       }
 
-      // 2. Create the seller row linked to the new auth user
       await createSeller({
         authUserId: authData.user.id,
         shopName,
@@ -92,18 +99,14 @@ export default function Auth() {
         whatsappNumber: cleanPhone,
       });
 
-      // If email confirmation is required, there's no session yet
       if (!authData.session) {
-        setErrorMsg('Check your email to confirm your account, then log in.');
+        setSuccessMsg('Check your email to confirm your account, then log in.');
         setIsRegistering(false);
         return;
       }
 
-      // Session exists — user is logged in
       navigate('/dashboard');
     } catch (err) {
-      // If auth user was created but seller row failed, clean up the auth user
-      // so they can try again with the same email
       if (err.message?.includes('Shop handle')) {
         try {
           await supabase.auth.signOut();
@@ -118,36 +121,51 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F4F6F4] text-[#111813] flex flex-col justify-between p-4 sm:p-6 font-sans">
-      <header className="w-full max-w-md mx-auto py-4 flex justify-between items-center">
-        <div className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-2xl bg-[#006241] flex items-center justify-center text-white font-black text-base shadow-sm">
-            O
-          </div>
-          <span className="font-black text-xl tracking-tight text-[#111813]">ordy</span>
-        </div>
+    <div className="min-h-screen bg-[#F4F6F4] text-[#111813] flex flex-col justify-between font-sans">
+      <header className="w-full max-w-md mx-auto px-4 sm:px-6 py-5 flex justify-between items-center">
+        <OrdyLogo size={36} />
         <span className="text-[11px] font-semibold text-[#5A655D] bg-white px-3 py-1 rounded-full border border-[#E7EBE7]">
           0% commission • LK
         </span>
       </header>
 
-      <main className="max-w-md w-full mx-auto space-y-5">
-        <div className="space-y-1.5">
-          <h1 className="text-3xl font-black text-[#111813] tracking-tight uppercase leading-[1.1]">
-            {isRegistering ? 'LAUNCH YOUR STORE IN 60 SECONDS.' : 'YOUR WHOLE BUSINESS. ONE APP.'}
+      <main className="max-w-md w-full mx-auto px-4 sm:px-6 space-y-6 pb-6">
+        {/* Hero copy */}
+        <div className="space-y-3">
+          <h1 className="text-3xl font-black text-[#111813] tracking-tight uppercase leading-[1.05]">
+            {isRegistering ? 'Launch your store in 60 seconds.' : 'Your whole business. One app.'}
           </h1>
           <p className="text-xs text-[#5A655D] leading-relaxed">
-            Run your social commerce calmly from your phone or desktop. Eliminate COD returns and messy DM logs.
+            {isRegistering
+              ? 'Set up your store, add products, and start taking orders from WhatsApp and Instagram — all in one place.'
+              : 'Run your social commerce calmly from your phone or desktop. Eliminate COD returns and messy DM logs.'}
           </p>
         </div>
 
+        {/* Feature chips (login screen only) */}
+        {!isRegistering && (
+          <ul className="space-y-1.5">
+            {FEATURES.map((f) => (
+              <li key={f} className="flex items-start gap-2 text-[11px] text-[#5A655D]">
+                <CheckCircle2 className="w-3.5 h-3.5 text-[#006241] shrink-0 mt-0.5" />
+                <span>{f}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {/* Form card */}
         <div className="bg-white border border-[#E7EBE7] rounded-[28px] p-6 shadow-sm space-y-4">
           <div className="flex justify-between items-center border-b border-[#E7EBE7] pb-3">
             <h2 className="text-sm font-bold text-[#111813]">
               {isRegistering ? 'Create Merchant Account' : 'Sign in to your shop'}
             </h2>
             <button
-              onClick={() => { setIsRegistering(!isRegistering); setErrorMsg(''); }}
+              onClick={() => {
+                setIsRegistering(!isRegistering);
+                setErrorMsg('');
+                setSuccessMsg('');
+              }}
               className="text-xs font-bold text-[#006241] hover:underline"
             >
               {isRegistering ? 'Already have a shop?' : 'Create shop'}
@@ -158,6 +176,13 @@ export default function Auth() {
             <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs px-3.5 py-2.5 rounded-2xl flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{errorMsg}</span>
+            </div>
+          )}
+
+          {successMsg && (
+            <div className="bg-[#E8F0E9] border border-[#C2D6C5] text-[#006241] text-xs px-3.5 py-2.5 rounded-2xl flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span>{successMsg}</span>
             </div>
           )}
 
@@ -172,13 +197,14 @@ export default function Auth() {
                   onChange={(e) => setShopName(e.target.value)}
                   placeholder="e.g. Colombo Apparel"
                   required
-                  className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl font-bold"
+                  autoComplete="organization"
+                  className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] focus:border-[#006241] focus:bg-white rounded-xl font-bold outline-none transition"
                 />
               </div>
 
               <div>
                 <label className="block font-semibold mb-1">Store Handle (URL) *</label>
-                <div className="flex items-center bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl px-3 py-2 text-xs">
+                <div className="flex items-center bg-[#F4F6F4] border border-[#E7EBE7] focus-within:border-[#006241] focus-within:bg-white rounded-xl px-3 py-2 text-xs transition">
                   <span className="text-[#5A655D] font-mono select-none">{window.location.host}/</span>
                   <input
                     type="text"
@@ -187,6 +213,7 @@ export default function Auth() {
                     onChange={(e) => setHandle(e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, ''))}
                     placeholder="colombo-apparel"
                     required
+                    autoComplete="off"
                     className="flex-1 bg-transparent font-mono font-bold focus:outline-none"
                   />
                 </div>
@@ -202,7 +229,7 @@ export default function Auth() {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="owner@colomboapparel.lk"
                   required
-                  className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl"
+                  className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] focus:border-[#006241] focus:bg-white rounded-xl outline-none transition"
                 />
               </div>
 
@@ -217,7 +244,7 @@ export default function Auth() {
                   placeholder="At least 6 characters"
                   minLength={6}
                   required
-                  className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl font-mono"
+                  className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] focus:border-[#006241] focus:bg-white rounded-xl font-mono outline-none transition"
                 />
               </div>
 
@@ -226,18 +253,19 @@ export default function Auth() {
                 <input
                   type="tel"
                   name="phone"
+                  autoComplete="tel"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="0771234567"
                   required
-                  className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl font-mono font-bold"
+                  className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] focus:border-[#006241] focus:bg-white rounded-xl font-mono font-bold outline-none transition"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3.5 bg-[#006241] hover:bg-[#004F34] text-white font-bold rounded-2xl text-xs transition shadow-sm flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50 mt-2"
+                className="w-full py-3.5 bg-[#006241] hover:bg-[#004F34] text-white font-bold rounded-2xl text-xs transition shadow-sm flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50 mt-2 cursor-pointer"
               >
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Launch Store'}
               </button>
@@ -254,7 +282,7 @@ export default function Auth() {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="yourshop@example.com"
                   required
-                  className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl text-xs focus:bg-white"
+                  className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] focus:border-[#006241] focus:bg-white rounded-xl text-xs outline-none transition"
                 />
               </div>
 
@@ -268,14 +296,14 @@ export default function Auth() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   required
-                  className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl text-xs font-mono focus:bg-white"
+                  className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] focus:border-[#006241] focus:bg-white rounded-xl text-xs font-mono outline-none transition"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3.5 bg-[#006241] hover:bg-[#004F34] text-white font-bold rounded-2xl text-xs transition shadow-sm flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50 mt-2"
+                className="w-full py-3.5 bg-[#006241] hover:bg-[#004F34] text-white font-bold rounded-2xl text-xs transition shadow-sm flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50 mt-2 cursor-pointer"
               >
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Enter Shop'}
               </button>
@@ -284,7 +312,7 @@ export default function Auth() {
         </div>
       </main>
 
-      <footer className="py-4 text-center text-xs text-[#5A655D]">
+      <footer className="py-5 text-center text-xs text-[#5A655D]">
         Built for Sri Lanka's Independent Merchants
       </footer>
     </div>
