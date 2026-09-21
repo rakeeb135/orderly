@@ -27,6 +27,21 @@ import {
   formatLKR,
 } from '../services/dbService';
 
+// Stock helpers
+function isSoldOut(product) {
+  if (!product || !product.track_stock) return false;
+  const count = Number(product.stock_count);
+  return !Number.isFinite(count) || count <= 0;
+}
+
+function stockLabel(product) {
+  if (!product?.track_stock) return null;
+  const count = Number(product.stock_count) || 0;
+  if (count <= 0) return { text: 'Sold Out', tone: 'sold' };
+  if (count <= 3) return { text: `Only ${count} left`, tone: 'low' };
+  return { text: `${count} in stock`, tone: 'ok' };
+}
+
 // Official 25 Administrative Districts of Sri Lanka
 const SL_DISTRICTS = [
   'Colombo', 'Gampaha', 'Kalutara',
@@ -44,7 +59,7 @@ const BUYER_STORAGE_KEY = 'ordy_buyer_profile';
 const CART_STORAGE_PREFIX = 'ordy_storefront_cart_';
 
 /* ------------------------------------------------------------------ */
-/*  Inline brand SVGs (self-contained, no external icons needed)       */
+/*  Inline brand SVGs                                                  */
 /* ------------------------------------------------------------------ */
 function InstagramIcon({ className = 'w-3.5 h-3.5' }) {
   return (
@@ -76,7 +91,6 @@ export default function Storefront() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Cart with persistence
   const [cart, setCart] = useState([]);
   const [hydratedHandle, setHydratedHandle] = useState(null);
 
@@ -102,13 +116,10 @@ export default function Storefront() {
   const [placedOrder, setPlacedOrder] = useState(null);
   const [copied, setCopied] = useState(false);
 
-  // Category filter
   const [activeCategory, setActiveCategory] = useState('all');
 
-  const cartStorageKey = `${CART_STORAGE_PREFIX}${handle}`;
-
   /* ---------------------------------------------------------------- */
-  /*  Load seller + products                                            */
+  /*  Load seller + products                                           */
   /* ---------------------------------------------------------------- */
   useEffect(() => {
     async function load() {
@@ -130,7 +141,7 @@ export default function Storefront() {
   }, [handle]);
 
   /* ---------------------------------------------------------------- */
-  /*  Load buyer profile                                                */
+  /*  Load buyer profile                                               */
   /* ---------------------------------------------------------------- */
   useEffect(() => {
     try {
@@ -150,7 +161,7 @@ export default function Storefront() {
   }, []);
 
   /* ---------------------------------------------------------------- */
-  /*  Load + persist cart per-shop                                     */
+  /*  Cart persistence                                                 */
   /* ---------------------------------------------------------------- */
   useEffect(() => {
     if (!handle) return;
@@ -179,7 +190,7 @@ export default function Storefront() {
   }, [cart, handle, hydratedHandle]);
 
   /* ---------------------------------------------------------------- */
-  /*  Handle ?p=PRODUCT_ID deep link — auto open product on load       */
+  /*  Legacy ?p=uuid deep link                                         */
   /* ---------------------------------------------------------------- */
   useEffect(() => {
     if (!products.length) return;
@@ -197,7 +208,7 @@ export default function Storefront() {
   }, [products]);
 
   /* ---------------------------------------------------------------- */
-  /*  Bank details availability                                        */
+  /*  Bank details                                                     */
   /* ---------------------------------------------------------------- */
   const hasBankDetails = Boolean(
     seller?.bank_details?.bank_name?.trim() &&
@@ -210,7 +221,7 @@ export default function Storefront() {
   }, [hasBankDetails, paymentMethod]);
 
   /* ---------------------------------------------------------------- */
-  /*  Unique categories from products                                  */
+  /*  Categories                                                       */
   /* ---------------------------------------------------------------- */
   const categories = useMemo(() => {
     const set = new Set();
@@ -220,7 +231,6 @@ export default function Storefront() {
     return Array.from(set).sort();
   }, [products]);
 
-  // Reset category filter if it disappears
   useEffect(() => {
     if (activeCategory !== 'all' && !categories.includes(activeCategory)) {
       setActiveCategory('all');
@@ -233,7 +243,7 @@ export default function Storefront() {
   }, [products, activeCategory]);
 
   /* ---------------------------------------------------------------- */
-  /*  Product modal                                                     */
+  /*  Product modal                                                    */
   /* ---------------------------------------------------------------- */
   const openProductModal = (product) => {
     setSelectedProductView(product);
@@ -254,10 +264,12 @@ export default function Storefront() {
     setSelectedProductView(null);
     setChosenQty(1);
     setVariantError('');
+    setJustAdded(false);
   };
 
   const addToCartFromModal = () => {
     if (!selectedProductView) return;
+    if (isSoldOut(selectedProductView)) return;
 
     const variants = selectedProductView.variants || [];
     const availableSizes = Array.from(new Set(variants.map((v) => v.size).filter(Boolean)));
@@ -302,8 +314,6 @@ export default function Storefront() {
       ];
     });
 
-    // Keep the modal open so the buyer can add another variant.
-    // Show a small "Added" confirmation, clear after ~1.8s.
     setJustAdded(true);
     setVariantError('');
     setChosenQty(1);
@@ -311,7 +321,7 @@ export default function Storefront() {
   };
 
   /* ---------------------------------------------------------------- */
-  /*  Cart editing helpers                                             */
+  /*  Cart editing                                                     */
   /* ---------------------------------------------------------------- */
   const updateCartQty = (itemKey, delta) => {
     setCart((prev) =>
@@ -329,9 +339,6 @@ export default function Storefront() {
     setCart((prev) => prev.filter((item) => item.itemKey !== itemKey));
   };
 
-  /* ---------------------------------------------------------------- */
-  /*  Auto-close checkout if cart emptied                              */
-  /* ---------------------------------------------------------------- */
   useEffect(() => {
     if (showCheckout && cart.length === 0 && !placedOrder) {
       setShowCheckout(false);
@@ -339,12 +346,11 @@ export default function Storefront() {
   }, [cart, showCheckout, placedOrder]);
 
   /* ---------------------------------------------------------------- */
-  /*  Totals + delivery fee (FIXED)                                    */
+  /*  Totals                                                           */
   /* ---------------------------------------------------------------- */
   const totalItems = cart.reduce((sum, i) => sum + i.quantity, 0);
   const subtotal = cart.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
 
-  // FIX: free shipping only when EVERY item in the cart qualifies
   const allItemsFreeDelivery = cart.length > 0 && cart.every((i) => i.free_delivery);
 
   let calculatedDeliveryFee = 0;
@@ -386,7 +392,7 @@ export default function Storefront() {
   };
 
   /* ---------------------------------------------------------------- */
-  /*  Place order                                                       */
+  /*  Place order                                                      */
   /* ---------------------------------------------------------------- */
   const handleCheckoutSubmit = async (e) => {
     e.preventDefault();
@@ -465,7 +471,7 @@ export default function Storefront() {
   };
 
   /* ---------------------------------------------------------------- */
-  /*  Copy bank details                                                 */
+  /*  Copy bank details                                                */
   /* ---------------------------------------------------------------- */
   const handleCopyBankDetails = async () => {
     if (!placedOrder || !seller?.bank_details) return;
@@ -488,7 +494,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
   };
 
   /* ---------------------------------------------------------------- */
-  /*  Loading / inactive guards                                         */
+  /*  Guards                                                           */
   /* ---------------------------------------------------------------- */
   if (loading) {
     return (
@@ -510,6 +516,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
   const modalVariants = selectedProductView?.variants || [];
   const modalSizes = Array.from(new Set(modalVariants.map((v) => v.size).filter(Boolean)));
   const modalColors = Array.from(new Set(modalVariants.map((v) => v.color).filter(Boolean)));
+  const modalSoldOut = selectedProductView ? isSoldOut(selectedProductView) : false;
 
   const bankRef = placedOrder ? (placedOrder.order_code || placedOrder.id.slice(0, 4)) : '';
   const slipMessage = placedOrder
@@ -563,7 +570,6 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
             <h1 className="text-xl font-black tracking-tight">{seller.shop_name}</h1>
             {seller.bio && <p className="text-xs text-[#5A655D] max-w-sm mx-auto leading-relaxed">{seller.bio}</p>}
 
-            {/* Social icons — restored brand SVGs */}
             <div className="flex items-center justify-center gap-2 pt-2 flex-wrap">
               {seller.whatsapp_number && (
                 <a
@@ -631,7 +637,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
           </div>
         </div>
 
-        {/* Category chips — only if 2+ categories exist */}
+        {/* Category chips */}
         {categories.length >= 2 && (
           <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none -mx-4 px-4">
             <button
@@ -677,6 +683,8 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
               const hasVariants = p.variants && p.variants.length > 0;
               const hasDiscount =
                 p.compare_at_price && Number(p.compare_at_price) > Number(p.price);
+              const soldOut = isSoldOut(p);
+              const label = stockLabel(p);
 
               return (
                 <div
@@ -690,14 +698,21 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                     ) : (
                       p.title?.[0] || 'P'
                     )}
-                    {p.free_delivery && (
+                    {p.free_delivery && !soldOut && (
                       <div className="absolute top-1.5 left-1.5 bg-[#006241] text-white text-[9px] font-bold px-2 py-0.5 rounded-full shadow-xs">
                         Free Delivery
                       </div>
                     )}
-                    {hasDiscount && (
+                    {hasDiscount && !soldOut && (
                       <div className="absolute top-1.5 right-1.5 bg-rose-600 text-white text-[9px] font-bold px-2 py-0.5 rounded-full shadow-xs">
                         -{Math.round(((Number(p.compare_at_price) - Number(p.price)) / Number(p.compare_at_price)) * 100)}%
+                      </div>
+                    )}
+                    {soldOut && (
+                      <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
+                        <span className="text-white font-black text-xs uppercase tracking-wider">
+                          Sold Out
+                        </span>
                       </div>
                     )}
                   </div>
@@ -717,14 +732,31 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                         <Layers className="w-3 h-3" /> Options available
                       </div>
                     )}
+                    {label && (
+                      <div
+                        className={`text-[10px] font-bold mt-0.5 ${
+                          label.tone === 'sold'
+                            ? 'text-rose-600'
+                            : label.tone === 'low'
+                            ? 'text-amber-600'
+                            : 'text-[#5A655D]'
+                        }`}
+                      >
+                        {label.text}
+                      </div>
+                    )}
                   </div>
 
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); openProductModal(p); }}
-                    className="w-full py-2 bg-[#111813] hover:bg-stone-800 text-white rounded-xl text-xs font-bold transition active:scale-95 shadow-xs"
+                    className={`w-full py-2 rounded-xl text-xs font-bold transition active:scale-95 shadow-xs ${
+                      soldOut
+                        ? 'bg-stone-200 text-stone-500'
+                        : 'bg-[#111813] hover:bg-stone-800 text-white'
+                    }`}
                   >
-                    View Details
+                    {soldOut ? 'Sold Out' : 'View Details'}
                   </button>
                 </div>
               );
@@ -733,7 +765,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
         </div>
       </main>
 
-      {/* Product detail modal */}
+      {/* Product modal */}
       {selectedProductView && (
         <div className="fixed inset-0 bg-[#111813]/70 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
           <div className="bg-white w-full sm:max-w-md rounded-t-[32px] sm:rounded-[32px] p-6 shadow-2xl space-y-4 max-h-[92dvh] overflow-y-auto text-[#111813]">
@@ -746,7 +778,6 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
               </button>
             </div>
 
-            {/* Photo viewer */}
             <div className="space-y-2">
               <div className="w-full aspect-square rounded-2xl bg-stone-100 border border-[#E7EBE7] overflow-hidden">
                 {selectedProductView.photo_urls?.[activePhotoIdx] ? (
@@ -779,7 +810,6 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
               )}
             </div>
 
-            {/* Title + price */}
             <div>
               <div className="flex justify-between items-start gap-2">
                 <div className="min-w-0">
@@ -801,19 +831,33 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                       )}
                   </div>
                 </div>
-                {selectedProductView.free_delivery && (
+                {selectedProductView.free_delivery && !modalSoldOut && (
                   <span className="px-2.5 py-1 bg-[#E8F0E9] text-[#006241] font-bold text-[10px] rounded-full shrink-0">
                     Free Delivery
                   </span>
                 )}
               </div>
+
+              {(() => {
+                const label = stockLabel(selectedProductView);
+                if (!label) return null;
+                const toneClass =
+                  label.tone === 'sold'
+                    ? 'text-rose-600'
+                    : label.tone === 'low'
+                    ? 'text-amber-600'
+                    : 'text-[#5A655D]';
+                return (
+                  <div className={`text-[11px] font-bold mt-2 ${toneClass}`}>{label.text}</div>
+                );
+              })()}
+
               {selectedProductView.description && (
                 <p className="text-xs text-[#5A655D] mt-2 leading-relaxed">{selectedProductView.description}</p>
               )}
             </div>
 
-            {/* Variant selection */}
-            {(modalSizes.length > 0 || modalColors.length > 0) && (
+            {!modalSoldOut && (modalSizes.length > 0 || modalColors.length > 0) && (
               <div className="space-y-3 pt-3 border-t border-[#E7EBE7]">
                 {modalColors.length > 0 && (
                   <div>
@@ -865,28 +909,29 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
               </div>
             )}
 
-            {/* Quantity */}
-            <div className="flex items-center justify-between bg-stone-50 border border-[#E7EBE7] rounded-xl p-3">
-              <span className="text-xs font-bold text-[#5A655D]">Quantity</span>
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setChosenQty((q) => Math.max(1, q - 1))}
-                  disabled={chosenQty <= 1}
-                  className="w-8 h-8 rounded-lg bg-white border border-[#E7EBE7] flex items-center justify-center disabled:opacity-40 active:scale-95 transition"
-                >
-                  <Minus className="w-3.5 h-3.5" />
-                </button>
-                <span className="w-8 text-center font-black text-sm">{chosenQty}</span>
-                <button
-                  type="button"
-                  onClick={() => setChosenQty((q) => Math.min(99, q + 1))}
-                  className="w-8 h-8 rounded-lg bg-white border border-[#E7EBE7] flex items-center justify-center active:scale-95 transition"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                </button>
+            {!modalSoldOut && (
+              <div className="flex items-center justify-between bg-stone-50 border border-[#E7EBE7] rounded-xl p-3">
+                <span className="text-xs font-bold text-[#5A655D]">Quantity</span>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setChosenQty((q) => Math.max(1, q - 1))}
+                    disabled={chosenQty <= 1}
+                    className="w-8 h-8 rounded-lg bg-white border border-[#E7EBE7] flex items-center justify-center disabled:opacity-40 active:scale-95 transition"
+                  >
+                    <Minus className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="w-8 text-center font-black text-sm">{chosenQty}</span>
+                  <button
+                    type="button"
+                    onClick={() => setChosenQty((q) => Math.min(99, q + 1))}
+                    className="w-8 h-8 rounded-lg bg-white border border-[#E7EBE7] flex items-center justify-center active:scale-95 transition"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
             {variantError && (
               <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs px-3 py-2 rounded-xl flex items-center gap-1.5">
@@ -895,42 +940,62 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
               </div>
             )}
 
-            <button
-              type="button"
-              onClick={addToCartFromModal}
-              className={`w-full py-3.5 font-bold rounded-2xl text-xs active:scale-95 transition shadow-xs flex items-center justify-center gap-2 ${
-                justAdded
-                  ? 'bg-[#E8F0E9] text-[#006241] border border-[#C2D6C5]'
-                  : 'bg-[#006241] hover:bg-[#004F34] text-white'
-              }`}
-            >
-              {justAdded ? (
-                <><CheckCircle2 className="w-4 h-4" /> Added — pick another option</>
-              ) : (
-                <>Add {chosenQty} to Bag • {formatLKR(Number(selectedProductView.price) * chosenQty)}</>
-              )}
-            </button>
-
-            {totalItems > 0 && (
-              <div className="flex items-center justify-between gap-3 pt-3 border-t border-[#E7EBE7]">
-                <div className="flex items-center gap-2 text-xs min-w-0">
-                  <ShoppingCart className="w-4 h-4 text-[#006241] shrink-0" />
-                  <span className="font-bold text-[#111813] truncate">
-                    {totalItems} item{totalItems === 1 ? '' : 's'}
-                  </span>
-                  <span className="text-stone-300 shrink-0">·</span>
-                  <span className="font-black text-[#006241] shrink-0">
-                    {formatLKR(subtotal)}
-                  </span>
+            {modalSoldOut ? (
+              <div className="space-y-2">
+                <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs px-3 py-3 rounded-2xl text-center font-bold">
+                  This product is sold out.
                 </div>
+                {cleanWaNumber && (
+                  <a
+                    href={`https://wa.me/${cleanWaNumber}?text=${encodeURIComponent(`Hi ${seller.shop_name}, is "${selectedProductView.title}" going to be restocked?`)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full py-3 bg-[#E8F0E9] hover:bg-[#D5E5D7] text-[#006241] font-bold rounded-2xl text-xs active:scale-95 transition flex items-center justify-center gap-2"
+                  >
+                    <MessageCircle className="w-4 h-4" /> Ask seller about restock
+                  </a>
+                )}
+              </div>
+            ) : (
+              <>
                 <button
                   type="button"
-                  onClick={() => { closeProductModal(); openCheckout(); }}
-                  className="px-4 py-2 bg-[#111813] hover:bg-stone-800 text-white rounded-xl text-xs font-bold active:scale-95 transition flex items-center gap-1 shrink-0"
+                  onClick={addToCartFromModal}
+                  className={`w-full py-3.5 font-bold rounded-2xl text-xs active:scale-95 transition shadow-xs flex items-center justify-center gap-2 ${
+                    justAdded
+                      ? 'bg-[#E8F0E9] text-[#006241] border border-[#C2D6C5]'
+                      : 'bg-[#006241] hover:bg-[#004F34] text-white'
+                  }`}
                 >
-                  Checkout <ArrowRight className="w-3 h-3" />
+                  {justAdded ? (
+                    <><CheckCircle2 className="w-4 h-4" /> Added — pick another option</>
+                  ) : (
+                    <>Add {chosenQty} to Bag • {formatLKR(Number(selectedProductView.price) * chosenQty)}</>
+                  )}
                 </button>
-              </div>
+
+                {totalItems > 0 && (
+                  <div className="flex items-center justify-between gap-3 pt-3 border-t border-[#E7EBE7]">
+                    <div className="flex items-center gap-2 text-xs min-w-0">
+                      <ShoppingCart className="w-4 h-4 text-[#006241] shrink-0" />
+                      <span className="font-bold text-[#111813] truncate">
+                        {totalItems} item{totalItems === 1 ? '' : 's'}
+                      </span>
+                      <span className="text-stone-300 shrink-0">·</span>
+                      <span className="font-black text-[#006241] shrink-0">
+                        {formatLKR(subtotal)}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { closeProductModal(); openCheckout(); }}
+                      className="px-4 py-2 bg-[#111813] hover:bg-stone-800 text-white rounded-xl text-xs font-bold active:scale-95 transition flex items-center gap-1 shrink-0"
+                    >
+                      Checkout <ArrowRight className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -967,7 +1032,6 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
 
             {placedOrder ? (
               placedOrder.payment_method === 'Bank' && hasBankDetails ? (
-                /* BANK SUCCESS SCREEN */
                 <div className="space-y-4">
                   <div className="text-center space-y-2">
                     <div className="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center mx-auto">
@@ -1065,7 +1129,6 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                   </div>
                 </div>
               ) : (
-                /* COD SUCCESS SCREEN */
                 <div className="py-6 text-center space-y-4">
                   <div className="w-16 h-16 bg-[#E8F0E9] rounded-full flex items-center justify-center mx-auto">
                     <CheckCircle2 className="w-8 h-8 text-[#006241]" />
@@ -1096,9 +1159,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                 </div>
               )
             ) : (
-              /* CHECKOUT FORM */
               <form onSubmit={handleCheckoutSubmit} className="space-y-3 text-xs">
-                {/* Cart editor */}
                 <div className="bg-[#F4F6F4] p-3 rounded-2xl border border-[#E7EBE7] space-y-2">
                   <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-[#5A655D]">
                     <span>Your Bag ({cart.length})</span>
@@ -1144,7 +1205,6 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                           type="button"
                           onClick={() => updateCartQty(item.itemKey, -1)}
                           className="w-6 h-6 rounded flex items-center justify-center text-[#5A655D] hover:bg-white active:scale-90 transition"
-                          aria-label="Decrease"
                         >
                           <Minus className="w-3 h-3" />
                         </button>
@@ -1155,7 +1215,6 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                           type="button"
                           onClick={() => updateCartQty(item.itemKey, 1)}
                           className="w-6 h-6 rounded flex items-center justify-center text-[#5A655D] hover:bg-white active:scale-90 transition"
-                          aria-label="Increase"
                         >
                           <Plus className="w-3 h-3" />
                         </button>
@@ -1165,7 +1224,6 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                         type="button"
                         onClick={() => removeCartItem(item.itemKey)}
                         className="p-1.5 text-stone-400 hover:text-rose-600 active:scale-90 transition shrink-0"
-                        aria-label="Remove"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -1173,7 +1231,6 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                   ))}
                 </div>
 
-                {/* Totals */}
                 <div className="bg-[#F4F6F4] p-3 rounded-2xl border border-[#E7EBE7] space-y-1.5">
                   <div className="flex justify-between text-[#5A655D]">
                     <span>Subtotal</span>
@@ -1282,7 +1339,6 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                   />
                 </div>
 
-                {/* Payment method */}
                 {hasBankDetails && (
                   <div className="border border-[#E7EBE7] rounded-2xl p-3 space-y-2 bg-stone-50/50">
                     <div className="font-bold text-xs">Payment Method</div>

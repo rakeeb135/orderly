@@ -13,7 +13,8 @@ import {
   DollarSign,
   Pencil,
   Truck,
-  Check
+  Check,
+  Package
 } from 'lucide-react';
 import { createProduct, updateProduct, updateProductStock, deleteProduct, formatLKR } from '../services/dbService';
 import { uploadStoreAsset } from '../services/storageService';
@@ -422,7 +423,12 @@ const ProductModal = memo(function ProductModal({
   const [price, setPrice] = useState(editingProduct?.price?.toString() || '');
   const [compareAtPrice, setCompareAtPrice] = useState(editingProduct?.compare_at_price?.toString() || '');
   const [costPrice, setCostPrice] = useState(editingProduct?.cost_price?.toString() || '');
-  const [stockCount, setStockCount] = useState(editingProduct?.stock_count?.toString() || '');
+  const [trackStock, setTrackStock] = useState(Boolean(editingProduct?.track_stock));
+  const [stockCount, setStockCount] = useState(
+    editingProduct?.stock_count !== null && editingProduct?.stock_count !== undefined
+      ? editingProduct.stock_count.toString()
+      : ''
+  );
   const [category, setCategory] = useState(editingProduct?.category || 'General');
   const [photoUrls, setPhotoUrls] = useState(editingProduct?.photo_urls || []);
   const [freeDelivery, setFreeDelivery] = useState(Boolean(editingProduct?.free_delivery));
@@ -547,7 +553,8 @@ const ProductModal = memo(function ProductModal({
           cost_price: costPrice ? parseFloat(costPrice) : null,
           description: description.trim(),
           category: cleanCat,
-          stock_count: baseStock,
+          track_stock: trackStock,
+          stock_count: trackStock ? baseStock : null,
           photo_urls: photoUrls,
           variants: variantPayload,
           free_delivery: freeDelivery
@@ -562,12 +569,13 @@ const ProductModal = memo(function ProductModal({
           compareAtPrice: compareAtPrice ? parseFloat(compareAtPrice) : null,
           costPrice: costPrice ? parseFloat(costPrice) : null,
           description: description.trim(),
-          trackStock: true,
-          stockCount: baseStock,
+          trackStock,
+          stockCount: trackStock ? baseStock : null,
           category: cleanCat,
           photoUrls: photoUrls,
           variants: variantPayload,
-          freeDelivery
+          freeDelivery,
+          productLimit: 500
         });
         onProductSaved(created, false);
         notify('Product published to store!');
@@ -688,16 +696,70 @@ const ProductModal = memo(function ProductModal({
             )}
           </div>
 
-          <div>
-            <label className="block font-semibold mb-1">Available Stock Units</label>
-            <input
-              type="number"
-              min="0"
-              value={stockCount}
-              onChange={(e) => setStockCount(e.target.value)}
-              placeholder="e.g. 15 (leave blank if made to order)"
-              className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl font-bold font-mono"
-            />
+          {/* Stock & Availability */}
+          <div className="border border-[#E7EBE7] rounded-2xl p-4 space-y-3 bg-white">
+            <div className="flex items-center gap-1.5 font-bold text-[#111813]">
+              <Package className="w-4 h-4 text-[#006241]" />
+              <span>Stock & Availability</span>
+            </div>
+
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => setTrackStock(false)}
+                className={`w-full text-left px-3.5 py-2.5 rounded-xl border transition active:scale-[0.98] ${
+                  !trackStock
+                    ? 'bg-[#006241] text-white border-[#006241]'
+                    : 'bg-white text-[#111813] border-[#E7EBE7] hover:border-stone-400'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className={`w-3 h-3 rounded-full border-2 ${
+                    !trackStock ? 'border-white bg-white' : 'border-stone-300 bg-white'
+                  }`} />
+                  <span className="font-bold text-xs">Made to Order</span>
+                </div>
+                <div className={`text-[10px] mt-1 ml-5 ${!trackStock ? 'text-white/75' : 'text-[#5A655D]'}`}>
+                  Sell without tracking stock. Best for dropshippers.
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTrackStock(true)}
+                className={`w-full text-left px-3.5 py-2.5 rounded-xl border transition active:scale-[0.98] ${
+                  trackStock
+                    ? 'bg-[#006241] text-white border-[#006241]'
+                    : 'bg-white text-[#111813] border-[#E7EBE7] hover:border-stone-400'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className={`w-3 h-3 rounded-full border-2 ${
+                    trackStock ? 'border-white bg-white' : 'border-stone-300 bg-white'
+                  }`} />
+                  <span className="font-bold text-xs">Track Stock</span>
+                </div>
+                <div className={`text-[10px] mt-1 ml-5 ${trackStock ? 'text-white/75' : 'text-[#5A655D]'}`}>
+                  Buyers see "Sold out" when it hits 0.
+                </div>
+              </button>
+            </div>
+
+            {trackStock && (
+              <div>
+                <label className="block text-[11px] font-bold text-[#5A655D] uppercase tracking-wider mb-1.5">
+                  Units Available
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={stockCount}
+                  onChange={(e) => setStockCount(e.target.value)}
+                  placeholder="e.g. 15"
+                  className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] focus:border-[#006241] focus:bg-white rounded-xl font-bold font-mono outline-none transition"
+                />
+              </div>
+            )}
           </div>
 
           <div className="border border-[#E7EBE7] rounded-2xl p-3.5 bg-stone-50/50">

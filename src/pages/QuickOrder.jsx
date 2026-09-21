@@ -21,6 +21,20 @@ import {
   formatLKR,
 } from '../services/dbService';
 
+function isSoldOut(product) {
+  if (!product || !product.track_stock) return false;
+  const count = Number(product.stock_count);
+  return !Number.isFinite(count) || count <= 0;
+}
+
+function stockLabel(product) {
+  if (!product?.track_stock) return null;
+  const count = Number(product.stock_count) || 0;
+  if (count <= 0) return { text: 'Sold Out', tone: 'sold' };
+  if (count <= 3) return { text: `Only ${count} left`, tone: 'low' };
+  return { text: `${count} in stock`, tone: 'ok' };
+}
+
 // Official 25 Administrative Districts of Sri Lanka
 const SL_DISTRICTS = [
   'Colombo', 'Gampaha', 'Kalutara',
@@ -44,7 +58,6 @@ export default function QuickOrder() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
-  // Currently-configured variant + quantity (for the "Add to Order" button)
   const [chosenSize, setChosenSize] = useState(null);
   const [chosenColor, setChosenColor] = useState(null);
   const [chosenQty, setChosenQty] = useState(1);
@@ -52,10 +65,8 @@ export default function QuickOrder() {
   const [justAdded, setJustAdded] = useState(false);
   const [activePhotoIdx, setActivePhotoIdx] = useState(0);
 
-  // Multi-selection cart — buyer can add multiple size/color combinations
   const [selections, setSelections] = useState([]);
 
-  // Form fields
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [secondaryPhone, setSecondaryPhone] = useState('');
@@ -126,7 +137,7 @@ export default function QuickOrder() {
   }, []);
 
   /* ---------------------------------------------------------------- */
-  /*  Bank details availability                                        */
+  /*  Bank details                                                     */
   /* ---------------------------------------------------------------- */
   const hasBankDetails = Boolean(
     seller?.bank_details?.bank_name?.trim() &&
@@ -151,9 +162,6 @@ export default function QuickOrder() {
     return Array.from(new Set(variants.map((v) => v.color).filter(Boolean)));
   }, [product]);
 
-  /* ---------------------------------------------------------------- */
-  /*  Auto-clear "just added" indicator                                */
-  /* ---------------------------------------------------------------- */
   useEffect(() => {
     if (!justAdded) return;
     const t = setTimeout(() => setJustAdded(false), 1800);
@@ -161,10 +169,11 @@ export default function QuickOrder() {
   }, [justAdded]);
 
   /* ---------------------------------------------------------------- */
-  /*  Add current variant/qty to the selections cart                   */
+  /*  Add selection                                                    */
   /* ---------------------------------------------------------------- */
   const handleAddSelection = () => {
     if (!product) return;
+    if (isSoldOut(product)) return;
 
     if (modalSizes.length > 0 && !chosenSize) {
       setVariantError('Please select a size first.');
@@ -228,7 +237,7 @@ export default function QuickOrder() {
   };
 
   /* ---------------------------------------------------------------- */
-  /*  Delivery fee                                                     */
+  /*  Totals                                                           */
   /* ---------------------------------------------------------------- */
   const selectionsSubtotal = selections.reduce(
     (sum, s) => sum + Number(s.price) * s.quantity,
@@ -273,31 +282,15 @@ export default function QuickOrder() {
       setFormError('Add at least one item to your order first.');
       return;
     }
-    if (!name.trim()) {
-      setFormError('Please enter your name.');
-      return;
-    }
-    if (!phone.trim()) {
-      setFormError('Please enter your phone number.');
-      return;
-    }
-    if (!district) {
-      setFormError('Please select your district.');
-      return;
-    }
-    if (!city.trim()) {
-      setFormError('Please enter your city / town.');
-      return;
-    }
-    if (!address.trim()) {
-      setFormError('Please enter your delivery address.');
-      return;
-    }
+    if (!name.trim()) { setFormError('Please enter your name.'); return; }
+    if (!phone.trim()) { setFormError('Please enter your phone number.'); return; }
+    if (!district) { setFormError('Please select your district.'); return; }
+    if (!city.trim()) { setFormError('Please enter your city / town.'); return; }
+    if (!address.trim()) { setFormError('Please enter your delivery address.'); return; }
 
     setPlacing(true);
 
     try {
-      // Strip UI-only fields before sending to backend
       const orderItems = selections.map((s) => ({
         id: s.id,
         title: s.title,
@@ -357,7 +350,7 @@ export default function QuickOrder() {
   };
 
   /* ---------------------------------------------------------------- */
-  /*  Loading / not found                                              */
+  /*  Guards                                                           */
   /* ---------------------------------------------------------------- */
   if (loading) {
     return (
@@ -402,6 +395,8 @@ export default function QuickOrder() {
   const discountPct = hasDiscount
     ? Math.round((savings / Number(product.compare_at_price)) * 100)
     : 0;
+  const soldOut = isSoldOut(product);
+  const label = stockLabel(product);
 
   /* ---------------------------------------------------------------- */
   /*  Success screen                                                   */
@@ -436,9 +431,7 @@ export default function QuickOrder() {
               <CheckCircle2 className="w-8 h-8 text-[#006241]" />
             </div>
             <div className="space-y-1">
-              <h1 className="font-black text-base text-[#111813]">
-                Order Placed!
-              </h1>
+              <h1 className="font-black text-base text-[#111813]">Order Placed!</h1>
               <p className="text-xs text-[#5A655D] font-mono">
                 #{placedOrder.order_code || placedOrder.id.slice(0, 4)}
               </p>
@@ -559,14 +552,21 @@ export default function QuickOrder() {
               </div>
             )}
 
-            {product.free_delivery && (
+            {product.free_delivery && !soldOut && (
               <div className="absolute top-3 left-3 bg-[#006241] text-white text-[10px] font-bold px-2.5 py-1 rounded-full shadow-sm">
                 Free Delivery
               </div>
             )}
-            {hasDiscount && (
+            {hasDiscount && !soldOut && (
               <div className="absolute top-3 right-3 bg-rose-600 text-white text-[10px] font-bold px-2.5 py-1 rounded-full shadow-sm">
                 -{discountPct}% OFF
+              </div>
+            )}
+            {soldOut && (
+              <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
+                <span className="text-white font-black text-lg uppercase tracking-wider">
+                  Sold Out
+                </span>
               </div>
             )}
           </div>
@@ -616,6 +616,20 @@ export default function QuickOrder() {
               )}
             </div>
 
+            {label && (
+              <div
+                className={`text-[11px] font-bold ${
+                  label.tone === 'sold'
+                    ? 'text-rose-600'
+                    : label.tone === 'low'
+                    ? 'text-amber-600'
+                    : 'text-[#5A655D]'
+                }`}
+              >
+                {label.text}
+              </div>
+            )}
+
             {product.description && (
               <p className="text-xs text-[#5A655D] leading-relaxed pt-1">
                 {product.description}
@@ -624,415 +638,436 @@ export default function QuickOrder() {
           </div>
         </div>
 
-        {/* Variant + Quantity + Add button */}
-        <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-5 shadow-xs space-y-4">
-          <div className="border-b border-[#E7EBE7] pb-3 -mx-1">
-            <h2 className="text-xs font-black uppercase tracking-wider text-[#111813]">
-              Configure Selection
-            </h2>
-            <p className="text-[10px] text-[#5A655D] mt-0.5">
-              Pick a size/color, set quantity, then add to order. Add more variants below.
-            </p>
-          </div>
-
-          {modalColors.length > 0 && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-[#5A655D]">
-                  Color
-                </span>
-                {chosenColor && (
-                  <span className="text-[11px] font-bold text-[#006241]">{chosenColor}</span>
-                )}
+        {soldOut ? (
+          <div className="bg-white border border-rose-200 rounded-[24px] p-5 shadow-xs space-y-4">
+            <div className="text-center space-y-3 py-2">
+              <div className="w-12 h-12 rounded-2xl bg-rose-50 flex items-center justify-center mx-auto">
+                <AlertCircle className="w-5 h-5 text-rose-600" />
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {modalColors.map((col) => (
-                  <button
-                    key={col}
-                    type="button"
-                    onClick={() => {
-                      setChosenColor(col);
-                      setVariantError('');
-                    }}
-                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition active:scale-95 ${
-                      chosenColor === col
-                        ? 'bg-[#006241] text-white border-[#006241]'
-                        : 'bg-stone-50 text-[#111813] border-[#E7EBE7] hover:border-stone-400'
-                    }`}
-                  >
-                    {col}
-                  </button>
-                ))}
+              <div>
+                <div className="font-black text-sm text-rose-900">Sold Out</div>
+                <p className="text-[11px] text-[#5A655D] mt-1">
+                  This product is currently unavailable.
+                </p>
               </div>
-            </div>
-          )}
-
-          {modalSizes.length > 0 && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-[#5A655D]">
-                  Size
-                </span>
-                {chosenSize && (
-                  <span className="text-[11px] font-bold text-[#006241]">{chosenSize}</span>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {modalSizes.map((sz) => (
-                  <button
-                    key={sz}
-                    type="button"
-                    onClick={() => {
-                      setChosenSize(sz);
-                      setVariantError('');
-                    }}
-                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition active:scale-95 ${
-                      chosenSize === sz
-                        ? 'bg-[#006241] text-white border-[#006241]'
-                        : 'bg-stone-50 text-[#111813] border-[#E7EBE7] hover:border-stone-400'
-                    }`}
-                  >
-                    {sz}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="flex items-center justify-between pt-2 border-t border-[#E7EBE7]">
-            <div>
-              <div className="text-xs font-bold text-[#111813]">Quantity</div>
-              <div className="text-[10px] text-[#5A655D] mt-0.5">
-                {formatLKR(product.price)} each
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setChosenQty((q) => Math.max(1, q - 1))}
-                disabled={chosenQty <= 1}
-                className="w-9 h-9 rounded-xl bg-[#F4F6F4] border border-[#E7EBE7] flex items-center justify-center disabled:opacity-40 active:scale-95 transition"
-                aria-label="Decrease quantity"
-              >
-                <Minus className="w-3.5 h-3.5" />
-              </button>
-              <span className="w-8 text-center font-black text-base">{chosenQty}</span>
-              <button
-                type="button"
-                onClick={() => setChosenQty((q) => Math.min(99, q + 1))}
-                className="w-9 h-9 rounded-xl bg-[#F4F6F4] border border-[#E7EBE7] flex items-center justify-center active:scale-95 transition"
-                aria-label="Increase quantity"
-              >
-                <Plus className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-
-          {variantError && (
-            <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs px-3 py-2 rounded-xl flex items-center gap-1.5">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-              <span>{variantError}</span>
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={handleAddSelection}
-            className={`w-full py-3.5 font-bold rounded-2xl text-sm active:scale-[0.98] transition shadow-sm flex items-center justify-center gap-2 ${
-              justAdded
-                ? 'bg-[#E8F0E9] text-[#006241] border border-[#C2D6C5]'
-                : 'bg-[#006241] hover:bg-[#004F34] text-white'
-            }`}
-          >
-            {justAdded ? (
-              <><CheckCircle2 className="w-4 h-4" /> Added — pick another option</>
-            ) : (
-              <>
-                {selections.length === 0 ? 'Add to Order' : '+ Add Another Selection'} •{' '}
-                {formatLKR(Number(product.price) * chosenQty)}
-              </>
-            )}
-          </button>
-        </div>
-
-        {/* Selections cart */}
-        {selections.length > 0 && (
-          <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-5 shadow-xs space-y-3">
-            <div className="flex items-center justify-between border-b border-[#E7EBE7] pb-3">
-              <h2 className="text-xs font-black uppercase tracking-wider text-[#111813]">
-                Your Order ({selections.length} item{selections.length === 1 ? '' : 's'})
-              </h2>
-              <span className="text-xs font-black text-[#006241]">
-                {formatLKR(selectionsSubtotal)}
-              </span>
-            </div>
-
-            <div className="space-y-2">
-              {selections.map((s) => (
-                <div
-                  key={s.itemKey}
-                  className="bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl p-3 flex items-center gap-2"
+              {cleanWaNumber && (
+                <a
+                  href={`https://wa.me/${cleanWaNumber}?text=${encodeURIComponent(`Hi ${seller.shop_name}, is "${product.title}" going to be restocked?`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-[#E8F0E9] hover:bg-[#D5E5D7] text-[#006241] font-bold rounded-2xl text-xs active:scale-95 transition"
                 >
-                  <div className="min-w-0 flex-1">
-                    <div className="font-bold text-xs text-[#111813] truncate">
-                      {s.baseTitle || s.title}
-                    </div>
-                    {(s.size || s.color) && (
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {s.size && (
-                          <span className="px-1.5 py-0.5 bg-white border border-[#E7EBE7] rounded text-[9px] font-bold text-[#111813]">
-                            {s.size}
-                          </span>
-                        )}
-                        {s.color && (
-                          <span className="px-1.5 py-0.5 bg-white border border-[#E7EBE7] rounded text-[9px] font-bold text-[#111813]">
-                            {s.color}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    <div className="text-[10px] text-[#5A655D] font-mono mt-0.5">
-                      {formatLKR(s.price)} × {s.quantity} = {formatLKR(s.price * s.quantity)}
-                    </div>
-                  </div>
+                  <MessageCircle className="w-3.5 h-3.5" /> Ask about restock
+                </a>
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Variant + Quantity + Add button */}
+            <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-5 shadow-xs space-y-4">
+              <div className="border-b border-[#E7EBE7] pb-3 -mx-1">
+                <h2 className="text-xs font-black uppercase tracking-wider text-[#111813]">
+                  Configure Selection
+                </h2>
+                <p className="text-[10px] text-[#5A655D] mt-0.5">
+                  Pick a size/color, set quantity, then add to order. Add more variants below.
+                </p>
+              </div>
 
-                  <div className="flex items-center gap-1 bg-white rounded-lg p-0.5 border border-[#E7EBE7] shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateSelectionQty(s.itemKey, -1)}
-                      className="w-6 h-6 rounded flex items-center justify-center text-[#5A655D] hover:bg-[#F4F6F4] active:scale-90 transition"
-                      aria-label="Decrease"
-                    >
-                      <Minus className="w-3 h-3" />
-                    </button>
-                    <span className="font-mono font-bold text-[11px] px-1 min-w-[14px] text-center">
-                      {s.quantity}
+              {modalColors.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-[#5A655D]">
+                      Color
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateSelectionQty(s.itemKey, 1)}
-                      className="w-6 h-6 rounded flex items-center justify-center text-[#5A655D] hover:bg-[#F4F6F4] active:scale-90 transition"
-                      aria-label="Increase"
-                    >
-                      <Plus className="w-3 h-3" />
-                    </button>
+                    {chosenColor && (
+                      <span className="text-[11px] font-bold text-[#006241]">{chosenColor}</span>
+                    )}
                   </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {modalColors.map((col) => (
+                      <button
+                        key={col}
+                        type="button"
+                        onClick={() => {
+                          setChosenColor(col);
+                          setVariantError('');
+                        }}
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition active:scale-95 ${
+                          chosenColor === col
+                            ? 'bg-[#006241] text-white border-[#006241]'
+                            : 'bg-stone-50 text-[#111813] border-[#E7EBE7] hover:border-stone-400'
+                        }`}
+                      >
+                        {col}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
+              {modalSizes.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-[#5A655D]">
+                      Size
+                    </span>
+                    {chosenSize && (
+                      <span className="text-[11px] font-bold text-[#006241]">{chosenSize}</span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {modalSizes.map((sz) => (
+                      <button
+                        key={sz}
+                        type="button"
+                        onClick={() => {
+                          setChosenSize(sz);
+                          setVariantError('');
+                        }}
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition active:scale-95 ${
+                          chosenSize === sz
+                            ? 'bg-[#006241] text-white border-[#006241]'
+                            : 'bg-stone-50 text-[#111813] border-[#E7EBE7] hover:border-stone-400'
+                        }`}
+                      >
+                        {sz}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-2 border-t border-[#E7EBE7]">
+                <div>
+                  <div className="text-xs font-bold text-[#111813]">Quantity</div>
+                  <div className="text-[10px] text-[#5A655D] mt-0.5">
+                    {formatLKR(product.price)} each
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
                   <button
                     type="button"
-                    onClick={() => handleRemoveSelection(s.itemKey)}
-                    className="p-1.5 text-stone-400 hover:text-rose-600 active:scale-90 transition shrink-0"
-                    aria-label="Remove"
+                    onClick={() => setChosenQty((q) => Math.max(1, q - 1))}
+                    disabled={chosenQty <= 1}
+                    className="w-9 h-9 rounded-xl bg-[#F4F6F4] border border-[#E7EBE7] flex items-center justify-center disabled:opacity-40 active:scale-95 transition"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Minus className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="w-8 text-center font-black text-base">{chosenQty}</span>
+                  <button
+                    type="button"
+                    onClick={() => setChosenQty((q) => Math.min(99, q + 1))}
+                    className="w-9 h-9 rounded-xl bg-[#F4F6F4] border border-[#E7EBE7] flex items-center justify-center active:scale-95 transition"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
                   </button>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
+              </div>
 
-        {/* Delivery form */}
-        <form
-          onSubmit={handlePlaceOrder}
-          className="bg-white border border-[#E7EBE7] rounded-[24px] p-5 shadow-xs space-y-3"
-        >
-          <div className="border-b border-[#E7EBE7] pb-3 -mx-1">
-            <h2 className="text-xs font-black uppercase tracking-wider text-[#111813]">
-              Delivery Details
-            </h2>
-            <p className="text-[10px] text-[#5A655D] mt-0.5">
-              We only ask for what the courier needs.
-            </p>
-          </div>
+              {variantError && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs px-3 py-2 rounded-xl flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{variantError}</span>
+                </div>
+              )}
 
-          <div>
-            <label className="block text-[11px] font-bold text-[#5A655D] uppercase tracking-wider mb-1.5">
-              Full Name *
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Kasun Mendis"
-              required
-              autoComplete="name"
-              className="w-full px-3.5 py-3 bg-[#F4F6F4] border border-[#E7EBE7] focus:border-[#006241] focus:bg-white rounded-xl text-sm font-medium outline-none transition"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-bold text-[#5A655D] uppercase tracking-wider mb-1.5">
-              WhatsApp Number *
-            </label>
-            <input
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="0771234567"
-              required
-              autoComplete="tel"
-              className="w-full px-3.5 py-3 bg-[#F4F6F4] border border-[#E7EBE7] focus:border-[#006241] focus:bg-white rounded-xl text-sm font-mono font-bold outline-none transition"
-            />
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-[11px] font-bold text-[#5A655D] uppercase tracking-wider">
-                Secondary Phone
-              </label>
-              <span className="text-[10px] text-[#5A655D]">Optional</span>
-            </div>
-            <input
-              type="tel"
-              value={secondaryPhone}
-              onChange={(e) => setSecondaryPhone(e.target.value)}
-              placeholder="For the courier to reach you"
-              className="w-full px-3.5 py-3 bg-[#F4F6F4] border border-[#E7EBE7] focus:border-[#006241] focus:bg-white rounded-xl text-sm font-mono font-medium outline-none transition"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="block text-[11px] font-bold text-[#5A655D] uppercase tracking-wider mb-1.5">
-                District *
-              </label>
-              <select
-                value={district}
-                onChange={(e) => setDistrict(e.target.value)}
-                required
-                className="w-full px-3 py-3 bg-[#F4F6F4] border border-[#E7EBE7] focus:border-[#006241] focus:bg-white rounded-xl text-sm font-bold outline-none transition"
+              <button
+                type="button"
+                onClick={handleAddSelection}
+                className={`w-full py-3.5 font-bold rounded-2xl text-sm active:scale-[0.98] transition shadow-sm flex items-center justify-center gap-2 ${
+                  justAdded
+                    ? 'bg-[#E8F0E9] text-[#006241] border border-[#C2D6C5]'
+                    : 'bg-[#006241] hover:bg-[#004F34] text-white'
+                }`}
               >
-                <option value="">Select</option>
-                {SL_DISTRICTS.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-bold text-[#5A655D] uppercase tracking-wider mb-1.5">
-                City / Town *
-              </label>
-              <input
-                type="text"
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                placeholder="e.g. Peradeniya"
-                required
-                autoComplete="address-level2"
-                className="w-full px-3.5 py-3 bg-[#F4F6F4] border border-[#E7EBE7] focus:border-[#006241] focus:bg-white rounded-xl text-sm outline-none transition"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-bold text-[#5A655D] uppercase tracking-wider mb-1.5">
-              Delivery Address *
-            </label>
-            <input
-              type="text"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="No. 42, Temple Road"
-              required
-              autoComplete="address-line1"
-              className="w-full px-3.5 py-3 bg-[#F4F6F4] border border-[#E7EBE7] focus:border-[#006241] focus:bg-white rounded-xl text-sm outline-none transition"
-            />
-          </div>
-
-          {hasBankDetails && (
-            <div className="pt-3 border-t border-[#E7EBE7] space-y-2">
-              <div className="text-[11px] font-bold text-[#5A655D] uppercase tracking-wider">
-                Payment Method
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod('COD')}
-                  className={`py-3 rounded-xl text-xs font-bold border transition active:scale-95 flex flex-col items-center gap-1 ${
-                    paymentMethod === 'COD'
-                      ? 'bg-[#006241] text-white border-[#006241]'
-                      : 'bg-stone-50 text-[#111813] border-[#E7EBE7] hover:border-stone-400'
-                  }`}
-                >
-                  <ShieldCheck className="w-4 h-4" />
-                  <span>Cash on Delivery</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod('Bank')}
-                  className={`py-3 rounded-xl text-xs font-bold border transition active:scale-95 flex flex-col items-center gap-1 ${
-                    paymentMethod === 'Bank'
-                      ? 'bg-[#006241] text-white border-[#006241]'
-                      : 'bg-stone-50 text-[#111813] border-[#E7EBE7] hover:border-stone-400'
-                  }`}
-                >
-                  <Landmark className="w-4 h-4" />
-                  <span>Bank Transfer</span>
-                </button>
-              </div>
-              <p className="text-[10px] text-[#5A655D] leading-relaxed">
-                {paymentMethod === 'COD'
-                  ? 'Pay cash to the rider when your order arrives.'
-                  : "You'll receive the seller's bank details after placing the order."}
-              </p>
-            </div>
-          )}
-
-          <div className="pt-3 border-t border-[#E7EBE7] space-y-1.5 text-xs">
-            <div className="flex justify-between text-[#5A655D]">
-              <span>
-                Subtotal ({selections.reduce((n, s) => n + s.quantity, 0)} item
-                {selections.reduce((n, s) => n + s.quantity, 0) === 1 ? '' : 's'})
-              </span>
-              <span className="font-semibold">{formatLKR(selectionsSubtotal)}</span>
-            </div>
-            <div className="flex justify-between text-[#5A655D]">
-              <span>Delivery Fee</span>
-              <span className="font-semibold">
-                {deliveryFeeStatus === 'free' ? (
-                  <span className="text-[#006241] font-black uppercase">FREE</span>
-                ) : deliveryFeeStatus === 'pending' ? (
-                  <span className="text-stone-400 italic">Pick district</span>
+                {justAdded ? (
+                  <><CheckCircle2 className="w-4 h-4" /> Added — pick another option</>
                 ) : (
-                  formatLKR(calculatedDeliveryFee)
+                  <>
+                    {selections.length === 0 ? 'Add to Order' : '+ Add Another Selection'} •{' '}
+                    {formatLKR(Number(product.price) * chosenQty)}
+                  </>
                 )}
-              </span>
+              </button>
             </div>
-            <div className="flex justify-between font-black text-base pt-2 border-t border-[#E7EBE7] text-[#006241]">
-              <span>Total</span>
-              <span>{formatLKR(grandTotal)}</span>
-            </div>
-          </div>
 
-          {formError && (
-            <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs px-3 py-2.5 rounded-xl flex items-center gap-1.5">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-              <span>{formError}</span>
-            </div>
-          )}
+            {/* Selections cart */}
+            {selections.length > 0 && (
+              <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-5 shadow-xs space-y-3">
+                <div className="flex items-center justify-between border-b border-[#E7EBE7] pb-3">
+                  <h2 className="text-xs font-black uppercase tracking-wider text-[#111813]">
+                    Your Order ({selections.length} item{selections.length === 1 ? '' : 's'})
+                  </h2>
+                  <span className="text-xs font-black text-[#006241]">
+                    {formatLKR(selectionsSubtotal)}
+                  </span>
+                </div>
 
-          <button
-            type="submit"
-            disabled={placing || selections.length === 0}
-            className="w-full py-4 bg-[#006241] hover:bg-[#004F34] text-white font-bold rounded-2xl text-sm active:scale-[0.98] transition shadow-sm flex items-center justify-center gap-2 disabled:opacity-50 mt-2"
-          >
-            {placing ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : selections.length === 0 ? (
-              'Add an item to continue'
-            ) : (
-              <>Place Order • {formatLKR(grandTotal)}</>
+                <div className="space-y-2">
+                  {selections.map((s) => (
+                    <div
+                      key={s.itemKey}
+                      className="bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl p-3 flex items-center gap-2"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="font-bold text-xs text-[#111813] truncate">
+                          {s.baseTitle || s.title}
+                        </div>
+                        {(s.size || s.color) && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {s.size && (
+                              <span className="px-1.5 py-0.5 bg-white border border-[#E7EBE7] rounded text-[9px] font-bold text-[#111813]">
+                                {s.size}
+                              </span>
+                            )}
+                            {s.color && (
+                              <span className="px-1.5 py-0.5 bg-white border border-[#E7EBE7] rounded text-[9px] font-bold text-[#111813]">
+                                {s.color}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        <div className="text-[10px] text-[#5A655D] font-mono mt-0.5">
+                          {formatLKR(s.price)} × {s.quantity} = {formatLKR(s.price * s.quantity)}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1 bg-white rounded-lg p-0.5 border border-[#E7EBE7] shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateSelectionQty(s.itemKey, -1)}
+                          className="w-6 h-6 rounded flex items-center justify-center text-[#5A655D] hover:bg-[#F4F6F4] active:scale-90 transition"
+                        >
+                          <Minus className="w-3 h-3" />
+                        </button>
+                        <span className="font-mono font-bold text-[11px] px-1 min-w-[14px] text-center">
+                          {s.quantity}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateSelectionQty(s.itemKey, 1)}
+                          className="w-6 h-6 rounded flex items-center justify-center text-[#5A655D] hover:bg-[#F4F6F4] active:scale-90 transition"
+                        >
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveSelection(s.itemKey)}
+                        className="p-1.5 text-stone-400 hover:text-rose-600 active:scale-90 transition shrink-0"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
-          </button>
 
-          <p className="text-[10px] text-center text-[#5A655D] pt-1">
-            By placing this order you agree to the seller's delivery terms.
-          </p>
-        </form>
+            {/* Delivery form */}
+            <form
+              onSubmit={handlePlaceOrder}
+              className="bg-white border border-[#E7EBE7] rounded-[24px] p-5 shadow-xs space-y-3"
+            >
+              <div className="border-b border-[#E7EBE7] pb-3 -mx-1">
+                <h2 className="text-xs font-black uppercase tracking-wider text-[#111813]">
+                  Delivery Details
+                </h2>
+                <p className="text-[10px] text-[#5A655D] mt-0.5">
+                  We only ask for what the courier needs.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-[#5A655D] uppercase tracking-wider mb-1.5">
+                  Full Name *
+                </label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Kasun Mendis"
+                  required
+                  autoComplete="name"
+                  className="w-full px-3.5 py-3 bg-[#F4F6F4] border border-[#E7EBE7] focus:border-[#006241] focus:bg-white rounded-xl text-sm font-medium outline-none transition"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-[#5A655D] uppercase tracking-wider mb-1.5">
+                  WhatsApp Number *
+                </label>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="0771234567"
+                  required
+                  autoComplete="tel"
+                  className="w-full px-3.5 py-3 bg-[#F4F6F4] border border-[#E7EBE7] focus:border-[#006241] focus:bg-white rounded-xl text-sm font-mono font-bold outline-none transition"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-[11px] font-bold text-[#5A655D] uppercase tracking-wider">
+                    Secondary Phone
+                  </label>
+                  <span className="text-[10px] text-[#5A655D]">Optional</span>
+                </div>
+                <input
+                  type="tel"
+                  value={secondaryPhone}
+                  onChange={(e) => setSecondaryPhone(e.target.value)}
+                  placeholder="For the courier to reach you"
+                  className="w-full px-3.5 py-3 bg-[#F4F6F4] border border-[#E7EBE7] focus:border-[#006241] focus:bg-white rounded-xl text-sm font-mono font-medium outline-none transition"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-bold text-[#5A655D] uppercase tracking-wider mb-1.5">
+                    District *
+                  </label>
+                  <select
+                    value={district}
+                    onChange={(e) => setDistrict(e.target.value)}
+                    required
+                    className="w-full px-3 py-3 bg-[#F4F6F4] border border-[#E7EBE7] focus:border-[#006241] focus:bg-white rounded-xl text-sm font-bold outline-none transition"
+                  >
+                    <option value="">Select</option>
+                    {SL_DISTRICTS.map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-[#5A655D] uppercase tracking-wider mb-1.5">
+                    City / Town *
+                  </label>
+                  <input
+                    type="text"
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    placeholder="e.g. Peradeniya"
+                    required
+                    autoComplete="address-level2"
+                    className="w-full px-3.5 py-3 bg-[#F4F6F4] border border-[#E7EBE7] focus:border-[#006241] focus:bg-white rounded-xl text-sm outline-none transition"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-[#5A655D] uppercase tracking-wider mb-1.5">
+                  Delivery Address *
+                </label>
+                <input
+                  type="text"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="No. 42, Temple Road"
+                  required
+                  autoComplete="address-line1"
+                  className="w-full px-3.5 py-3 bg-[#F4F6F4] border border-[#E7EBE7] focus:border-[#006241] focus:bg-white rounded-xl text-sm outline-none transition"
+                />
+              </div>
+
+              {hasBankDetails && (
+                <div className="pt-3 border-t border-[#E7EBE7] space-y-2">
+                  <div className="text-[11px] font-bold text-[#5A655D] uppercase tracking-wider">
+                    Payment Method
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod('COD')}
+                      className={`py-3 rounded-xl text-xs font-bold border transition active:scale-95 flex flex-col items-center gap-1 ${
+                        paymentMethod === 'COD'
+                          ? 'bg-[#006241] text-white border-[#006241]'
+                          : 'bg-stone-50 text-[#111813] border-[#E7EBE7] hover:border-stone-400'
+                      }`}
+                    >
+                      <ShieldCheck className="w-4 h-4" />
+                      <span>Cash on Delivery</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod('Bank')}
+                      className={`py-3 rounded-xl text-xs font-bold border transition active:scale-95 flex flex-col items-center gap-1 ${
+                        paymentMethod === 'Bank'
+                          ? 'bg-[#006241] text-white border-[#006241]'
+                          : 'bg-stone-50 text-[#111813] border-[#E7EBE7] hover:border-stone-400'
+                      }`}
+                    >
+                      <Landmark className="w-4 h-4" />
+                      <span>Bank Transfer</span>
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-[#5A655D] leading-relaxed">
+                    {paymentMethod === 'COD'
+                      ? 'Pay cash to the rider when your order arrives.'
+                      : "You'll receive the seller's bank details after placing the order."}
+                  </p>
+                </div>
+              )}
+
+              <div className="pt-3 border-t border-[#E7EBE7] space-y-1.5 text-xs">
+                <div className="flex justify-between text-[#5A655D]">
+                  <span>
+                    Subtotal ({selections.reduce((n, s) => n + s.quantity, 0)} item
+                    {selections.reduce((n, s) => n + s.quantity, 0) === 1 ? '' : 's'})
+                  </span>
+                  <span className="font-semibold">{formatLKR(selectionsSubtotal)}</span>
+                </div>
+                <div className="flex justify-between text-[#5A655D]">
+                  <span>Delivery Fee</span>
+                  <span className="font-semibold">
+                    {deliveryFeeStatus === 'free' ? (
+                      <span className="text-[#006241] font-black uppercase">FREE</span>
+                    ) : deliveryFeeStatus === 'pending' ? (
+                      <span className="text-stone-400 italic">Pick district</span>
+                    ) : (
+                      formatLKR(calculatedDeliveryFee)
+                    )}
+                  </span>
+                </div>
+                <div className="flex justify-between font-black text-base pt-2 border-t border-[#E7EBE7] text-[#006241]">
+                  <span>Total</span>
+                  <span>{formatLKR(grandTotal)}</span>
+                </div>
+              </div>
+
+              {formError && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs px-3 py-2.5 rounded-xl flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{formError}</span>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={placing || selections.length === 0}
+                className="w-full py-4 bg-[#006241] hover:bg-[#004F34] text-white font-bold rounded-2xl text-sm active:scale-[0.98] transition shadow-sm flex items-center justify-center gap-2 disabled:opacity-50 mt-2"
+              >
+                {placing ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : selections.length === 0 ? (
+                  'Add an item to continue'
+                ) : (
+                  <>Place Order • {formatLKR(grandTotal)}</>
+                )}
+              </button>
+
+              <p className="text-[10px] text-center text-[#5A655D] pt-1">
+                By placing this order you agree to the seller's delivery terms.
+              </p>
+            </form>
+          </>
+        )}
 
         <div className="flex items-center justify-center gap-4 text-[10px] font-bold text-[#5A655D] pt-1 pb-2 flex-wrap">
           {seller.cod_enabled !== false && (

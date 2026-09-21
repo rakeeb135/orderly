@@ -94,8 +94,8 @@ function ProtectedShell() {
   const isExpired = expiryDate && expiryDate < new Date() && !seller.is_super_admin;
 
   if (isExpired || seller.is_active === false) {
-    const renewalMsg = `Hi Rakeeb! I just transferred the Rs. 1,500 renewal fee for my shop "${seller.shop_name}" (Handle: ${seller.handle}). Here is my bank transfer slip:`;
-    const waLink = `https://wa.me/94771234567?text=${encodeURIComponent(renewalMsg)}`;
+    const renewalMsg = `Hi Rakeeb! I just transferred the Rs. 2,990 renewal fee for my shop "${seller.shop_name}" (Handle: ${seller.handle}). Here is my bank transfer slip:`;
+    const waLink = `https://wa.me/94769944414?text=${encodeURIComponent(renewalMsg)}`;
 
     return (
       <div className="min-h-screen bg-[#F4F6F4] flex items-center justify-center p-4 font-sans text-[#111813]">
