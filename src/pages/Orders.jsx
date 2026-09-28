@@ -17,7 +17,6 @@ import {
 } from '../services/dbService';
 import { supabase } from '../supabase';
 import PrintManifestModal from '../components/PrintManifestModal';
-import { SkeletonLine, SkeletonBlock } from '../components/Skeleton';
 import { notify } from '../components/Toast';
 import { confirm } from '../components/ConfirmModal';
 import { normalizeSLPhone } from '../utils/phone';
@@ -125,32 +124,6 @@ function useDebounced(value, delay = 300) {
   return debounced;
 }
 
-function OrderCardSkeleton() {
-  return (
-    <div className="relative bg-white border border-[#E4E4E7] rounded-2xl overflow-hidden">
-      <div className="absolute left-0 top-0 bottom-0 w-1 bg-stone-200 animate-pulse" />
-      <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 p-3.5 pl-4">
-        <div className="flex-1 min-w-0 space-y-2">
-          <div className="flex items-center gap-2">
-            <SkeletonLine className="h-4 w-14" />
-            <SkeletonLine className="h-4 w-20" />
-            <SkeletonLine className="h-3 w-16 ml-auto" />
-          </div>
-          <SkeletonLine className="h-3.5 w-40" />
-          <SkeletonLine className="h-3 w-56" />
-        </div>
-        <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-[#E4E4E7] sm:pl-3">
-          <div className="space-y-1.5">
-            <SkeletonLine className="h-4 w-20 ml-auto" />
-            <SkeletonLine className="h-3 w-12 ml-auto" />
-          </div>
-          <SkeletonBlock className="w-8 h-8 rounded-xl" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
   const navigate = useNavigate();
   const outletContext = useOutletContext() || {};
@@ -181,6 +154,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
 
   const tabRef = useRef(activeTab);
   const searchRef = useRef(debouncedSearch);
+  const countsTimerRef = useRef(null);
   useEffect(() => { tabRef.current = activeTab; }, [activeTab]);
   useEffect(() => { searchRef.current = debouncedSearch; }, [debouncedSearch]);
 
@@ -251,21 +225,28 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
   };
 
   /* ---------------------------------------------------------------- */
-  /*  Bulk trust lookup                                                */
+  /*  Bulk trust lookup — keyed on the PHONE SET so status updates     */
+  /*  do not trigger refetches.                                        */
   /* ---------------------------------------------------------------- */
+  const trustPhoneKey = useMemo(() => {
+    if (!orders.length) return '';
+    const set = new Set();
+    orders.forEach((o) => { if (o.customer_phone) set.add(o.customer_phone); });
+    return Array.from(set).sort().join('|');
+  }, [orders]);
+
   useEffect(() => {
-    if (!orders.length) {
+    if (!trustPhoneKey) {
       setTrustMap({});
       return;
     }
-    const phones = orders.map((o) => o.customer_phone).filter(Boolean);
-    if (!phones.length) return;
+    const phones = trustPhoneKey.split('|');
     let mounted = true;
     getBulkBuyerTrust(phones)
       .then((map) => { if (mounted) setTrustMap(map || {}); })
       .catch(() => {});
     return () => { mounted = false; };
-  }, [orders]);
+  }, [trustPhoneKey]);
 
   /* ---------------------------------------------------------------- */
   /*  Realtime                                                         */
@@ -286,9 +267,14 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
           const currentTab = tabRef.current;
           const currentSearch = (searchRef.current || '').toLowerCase();
 
-          getOrderCounts(seller.id).then((c) => {
-            if (isMounted) setCounts(c);
-          }).catch(() => {});
+          // Debounced counts refresh — collapses bursts of changes into one call
+          if (countsTimerRef.current) clearTimeout(countsTimerRef.current);
+          countsTimerRef.current = setTimeout(() => {
+            if (!isMounted) return;
+            getOrderCounts(seller.id).then((c) => {
+              if (isMounted) setCounts(c);
+            }).catch(() => {});
+          }, 500);
 
           const matchesTab = (row) => currentTab === 'active'
             ? row.status !== 'delivered' && row.status !== 'canceled'
@@ -337,6 +323,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
 
     return () => {
       isMounted = false;
+      if (countsTimerRef.current) clearTimeout(countsTimerRef.current);
       supabase.removeChannel(channel);
     };
   }, [seller?.id]);
@@ -391,7 +378,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
     const eligibleIds = eligibleSelected.map((o) => o.id);
     const snapshots = eligibleSelected.map((o) => ({ id: o.id, status: o.status }));
 
-    // Optimistic
     setOrders((prev) =>
       prev.map((o) =>
         eligibleIds.includes(o.id) ? { ...o, status: 'packed' } : o
@@ -412,7 +398,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
       else notify(`${updatedCount} order${updatedCount === 1 ? '' : 's'} packed!`);
       cancelSelectionMode();
     } catch (err) {
-      // Rollback
       setOrders((prev) =>
         prev.map((o) => {
           const snap = snapshots.find((s) => s.id === o.id);
@@ -431,7 +416,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
     const snapshot = orders.find((o) => o.id === target.id);
     if (!snapshot) return;
 
-    // Optimistic: mark dispatched + attach courier info locally
     setOrders((prev) =>
       prev.map((o) =>
         o.id === target.id
@@ -580,6 +564,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                 type="button"
                 onClick={(e) => toggleSelectOrder(ord.id, e)}
                 className="shrink-0 pt-0.5 sm:pt-0 cursor-pointer"
+                aria-label={isSelected ? 'Deselect order' : 'Select order'}
               >
                 {isSelected ? <CheckSquare className="w-5 h-5 text-[#006241]" /> : <Square className="w-5 h-5 text-stone-300 hover:text-stone-500 transition" />}
               </button>
@@ -758,8 +743,18 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search orders…"
-                className="w-full pl-9 pr-3 py-2 bg-[#F4F4F5] border border-transparent focus:border-[#006241] focus:bg-white rounded-xl text-xs outline-none font-medium transition placeholder:text-stone-400"
+                className="w-full pl-9 pr-8 py-2 bg-[#F4F4F5] border border-transparent focus:border-[#006241] focus:bg-white rounded-xl text-xs outline-none font-medium transition placeholder:text-stone-400"
               />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-stone-400 hover:text-[#18181B] hover:bg-stone-200 transition cursor-pointer"
+                  aria-label="Clear search"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
             </div>
 
             <button
@@ -848,11 +843,9 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
 
       {/* List */}
       {loading ? (
-              <div className="space-y-2">
-        {[...Array(5)].map((_, i) => (
-          <OrderCardSkeleton key={i} />
-        ))}
-      </div>
+        <div className="bg-white border border-[#E4E4E7] rounded-[24px] p-16 flex justify-center items-center">
+          <Loader2 className="w-6 h-6 text-[#006241] animate-spin" />
+        </div>
       ) : loadError ? (
         <ErrorCard message={loadError} onRetry={loadFirstPage} label="orders" />
       ) : orders.length === 0 ? (
@@ -868,6 +861,15 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
               {debouncedSearch ? 'Try a different keyword or clear the search.' : (activeTabMeta?.emptyDesc || 'Orders will appear here when they arrive.')}
             </p>
           </div>
+          {debouncedSearch && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="px-4 py-2 bg-[#F4F4F5] hover:bg-stone-200 border border-[#E4E4E7] text-[#18181B] rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer"
+            >
+              Clear search
+            </button>
+          )}
         </div>
       ) : groupedView ? (
         <div className="space-y-2">
@@ -923,6 +925,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
               <button
                 onClick={() => setDispatchOrderTarget(null)}
                 className="p-1.5 -m-1.5 text-stone-400 hover:text-black transition cursor-pointer"
+                aria-label="Close"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1030,6 +1033,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
               type="button"
               onClick={cancelSelectionMode}
               className="p-2 text-stone-400 hover:text-white transition cursor-pointer"
+              aria-label="Cancel selection"
             >
               <X className="w-4 h-4" />
             </button>

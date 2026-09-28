@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   TrendingUp, ShoppingBag, Clock, ArrowRight, Package, Truck,
-  CheckCircle2, AlertCircle, Plus, Loader2, PackageCheck, Layers,
-  AlertTriangle, RefreshCw,
+  CheckCircle2, AlertCircle, Plus, Loader2, PackageCheck,
+  Layers, AlertTriangle, RefreshCw,
 } from 'lucide-react';
 import {
   getDashboardSummary,
@@ -12,7 +12,6 @@ import {
   formatLKR,
 } from '../services/dbService';
 import { normalizeSLPhone } from '../utils/phone';
-import { SkeletonLine, SkeletonBlock } from '../components/Skeleton';
 import { supabase } from '../supabase';
 
 function relativeTime(iso) {
@@ -56,90 +55,6 @@ const EMPTY_SUMMARY = {
   waiting_on_buyer: 0,
 };
 
-function DashboardSkeleton() {
-  return (
-    <div className="space-y-4">
-      {/* Welcome card */}
-      <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-5 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="space-y-2">
-            <SkeletonLine className="h-4 w-44" />
-            <SkeletonLine className="h-3 w-64" />
-          </div>
-          <SkeletonBlock className="h-10 w-44 rounded-2xl" />
-        </div>
-      </div>
-
-      {/* Pipeline snapshot */}
-      <div className="bg-white border border-[#E7EBE7] rounded-[24px] shadow-xs overflow-hidden">
-        <div className="flex items-center justify-between px-5 pt-4 pb-2">
-          <SkeletonLine className="h-3 w-24" />
-          <SkeletonLine className="h-3 w-14" />
-        </div>
-        <div className="grid grid-cols-4 divide-x divide-[#E7EBE7] border-t border-[#E7EBE7]">
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="px-2 py-3.5 flex flex-col items-center gap-1.5">
-              <SkeletonBlock className="w-8 h-8 rounded-xl" />
-              <SkeletonLine className="h-4 w-6" />
-              <SkeletonLine className="h-2 w-12" />
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Metric row */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-4 shadow-xs space-y-2.5">
-          <div className="flex items-center gap-2">
-            <SkeletonBlock className="w-7 h-7 rounded-xl" />
-            <SkeletonLine className="h-2.5 w-16" />
-          </div>
-          <SkeletonLine className="h-6 w-24" />
-          <SkeletonLine className="h-2.5 w-14" />
-        </div>
-        <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-4 shadow-xs space-y-2.5">
-          <div className="flex items-center gap-2">
-            <SkeletonBlock className="w-7 h-7 rounded-xl" />
-            <SkeletonLine className="h-2.5 w-16" />
-          </div>
-          <SkeletonLine className="h-6 w-24" />
-          <SkeletonLine className="h-2.5 w-14" />
-        </div>
-        <div className="col-span-2 md:col-span-1 bg-white border border-[#E7EBE7] rounded-[24px] p-4 shadow-xs space-y-2.5">
-          <div className="flex items-center gap-2">
-            <SkeletonBlock className="w-7 h-7 rounded-xl" />
-            <SkeletonLine className="h-2.5 w-20" />
-          </div>
-          <SkeletonLine className="h-6 w-10" />
-          <SkeletonLine className="h-2.5 w-16" />
-        </div>
-      </div>
-
-      {/* Recent orders */}
-      <div className="bg-white border border-[#E7EBE7] rounded-[24px] shadow-xs overflow-hidden">
-        <div className="flex justify-between items-center px-5 pt-4 pb-3 border-b border-[#E7EBE7]">
-          <SkeletonLine className="h-4 w-28" />
-          <SkeletonLine className="h-3 w-16" />
-        </div>
-        <div className="divide-y divide-[#E7EBE7]">
-          {[0, 1, 2, 3, 4].map((i) => (
-            <div key={i} className="flex items-center justify-between gap-3 px-5 py-3">
-              <div className="flex-1 min-w-0 space-y-1.5">
-                <SkeletonLine className="h-3 w-32" />
-                <SkeletonLine className="h-3 w-40" />
-              </div>
-              <div className="space-y-1.5">
-                <SkeletonLine className="h-3.5 w-16 ml-auto" />
-                <SkeletonLine className="h-2.5 w-10 ml-auto" />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function Dashboard({ seller }) {
   const navigate = useNavigate();
   const [summary, setSummary] = useState(EMPTY_SUMMARY);
@@ -182,21 +97,27 @@ export default function Dashboard({ seller }) {
   }, [seller?.id, timeframe]);
 
   /* ---------------------------------------------------------------- */
-  /*  Trust lookup for recent orders only                              */
+  /*  Trust lookup — keyed on phone set so status changes don't refetch */
   /* ---------------------------------------------------------------- */
+  const trustPhoneKey = React.useMemo(() => {
+    if (!recentOrders.length) return '';
+    const set = new Set();
+    recentOrders.forEach((o) => { if (o.customer_phone) set.add(o.customer_phone); });
+    return Array.from(set).sort().join('|');
+  }, [recentOrders]);
+
   useEffect(() => {
-    if (!recentOrders.length) {
+    if (!trustPhoneKey) {
       setTrustMap({});
       return;
     }
-    const phones = recentOrders.map((o) => o.customer_phone).filter(Boolean);
-    if (!phones.length) return;
+    const phones = trustPhoneKey.split('|');
     let mounted = true;
     getBulkBuyerTrust(phones)
       .then((map) => { if (mounted) setTrustMap(map || {}); })
       .catch(() => {});
     return () => { mounted = false; };
-  }, [recentOrders]);
+  }, [trustPhoneKey]);
 
   /* ---------------------------------------------------------------- */
   /*  Realtime — debounced refetch on any order change                 */
@@ -234,7 +155,11 @@ export default function Dashboard({ seller }) {
   /*  Loading                                                          */
   /* ---------------------------------------------------------------- */
   if (loading) {
-    return <DashboardSkeleton />;
+    return (
+      <div className="flex items-center justify-center p-12">
+        <Loader2 className="w-8 h-8 text-[#006241] animate-spin" />
+      </div>
+    );
   }
 
   if (loadError && recentOrders.length === 0 && summary.order_count === 0) {
@@ -287,19 +212,19 @@ export default function Dashboard({ seller }) {
           <div className="flex bg-[#F4F6F4] p-1 rounded-2xl border border-[#E7EBE7] text-xs font-bold shrink-0 self-start sm:self-auto">
             <button
               onClick={() => setTimeframe('today')}
-              className={`px-3 py-1.5 rounded-xl transition ${timeframe === 'today' ? 'bg-white text-[#111813] shadow-xs' : 'text-[#5A655D]'}`}
+              className={`px-3 py-1.5 rounded-xl transition cursor-pointer ${timeframe === 'today' ? 'bg-white text-[#111813] shadow-xs' : 'text-[#5A655D]'}`}
             >
               Today
             </button>
             <button
               onClick={() => setTimeframe('week')}
-              className={`px-3 py-1.5 rounded-xl transition ${timeframe === 'week' ? 'bg-white text-[#111813] shadow-xs' : 'text-[#5A655D]'}`}
+              className={`px-3 py-1.5 rounded-xl transition cursor-pointer ${timeframe === 'week' ? 'bg-white text-[#111813] shadow-xs' : 'text-[#5A655D]'}`}
             >
               Week
             </button>
             <button
               onClick={() => setTimeframe('month')}
-              className={`px-3 py-1.5 rounded-xl transition ${timeframe === 'month' ? 'bg-white text-[#111813] shadow-xs' : 'text-[#5A655D]'}`}
+              className={`px-3 py-1.5 rounded-xl transition cursor-pointer ${timeframe === 'month' ? 'bg-white text-[#111813] shadow-xs' : 'text-[#5A655D]'}`}
             >
               Month
             </button>
@@ -310,7 +235,7 @@ export default function Dashboard({ seller }) {
       {/* Pipeline snapshot */}
       <button
         onClick={() => navigate('/orders')}
-        className="w-full bg-white border border-[#E7EBE7] rounded-[24px] shadow-xs hover:border-stone-300 transition active:scale-[0.995] group"
+        className="w-full bg-white border border-[#E7EBE7] rounded-[24px] shadow-xs hover:border-stone-300 transition active:scale-[0.995] group cursor-pointer"
       >
         <div className="flex items-center justify-between px-5 pt-4 pb-2">
           <span className="text-[10px] font-bold uppercase tracking-wider text-[#5A655D] flex items-center gap-1.5">
@@ -429,7 +354,7 @@ export default function Dashboard({ seller }) {
             <div className="flex items-center justify-center gap-2 pt-1">
               <button
                 onClick={() => navigate('/orders')}
-                className="px-4 py-2 bg-[#006241] hover:bg-[#004F34] text-white rounded-xl text-xs font-bold transition active:scale-95 flex items-center gap-1.5"
+                className="px-4 py-2 bg-[#006241] hover:bg-[#004F34] text-white rounded-xl text-xs font-bold transition active:scale-95 flex items-center gap-1.5 cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" /> New Order
               </button>
