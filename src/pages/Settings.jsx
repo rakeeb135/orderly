@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Save,
   Loader2,
@@ -21,12 +21,10 @@ import {
   getPushStatus,
   subscribeToPush,
   unsubscribeFromPush,
-} from '../services/dbService';
-import { uploadStoreAsset } from '../services/storageService';
-import {
   fetchAllOrdersForExport,
   fetchAllCustomersForExport,
 } from '../services/dbService';
+import { uploadStoreAsset } from '../services/storageService';
 import {
   generateCSV,
   downloadTextFile,
@@ -110,6 +108,62 @@ export default function Settings({ seller, setSeller }) {
       mounted = false;
     };
   }, []);
+
+  /* ---------------------------------------------------------------- */
+  /*  Dirty state — true when any field differs from the saved seller  */
+  /* ---------------------------------------------------------------- */
+  const isDirty = useMemo(() => {
+    if (!seller) return false;
+    return (
+      shopName !== (seller.shop_name || '') ||
+      handle !== (seller.handle || '') ||
+      bio !== (seller.bio || '') ||
+      logoUrl !== (seller.logo_url || '') ||
+      bannerUrl !== (seller.banner_url || '') ||
+      whatsapp !== (seller.whatsapp_number || '') ||
+      instagram !== (seller.instagram_handle || '') ||
+      tiktok !== (seller.tiktok_handle || '') ||
+      facebook !== (seller.facebook_handle || '') ||
+      homeDistrict !== (seller.home_district || 'Colombo') ||
+      String(deliveryFee) !== String(seller.delivery_fee ?? 350) ||
+      String(outstationFee) !== String(seller.outstation_delivery_fee ?? 450) ||
+      codEnabled !== (seller.cod_enabled !== false) ||
+      prepayHighRisk !== (seller.require_prepay_high_risk || false) ||
+      bankName !== (seller.bank_details?.bank_name || '') ||
+      accountName !== (seller.bank_details?.account_name || '') ||
+      accountNumber !== (seller.bank_details?.account_number || '') ||
+      bankBranch !== (seller.bank_details?.branch || '')
+    );
+  }, [
+    seller,
+    shopName, handle, bio, logoUrl, bannerUrl,
+    whatsapp, instagram, tiktok, facebook,
+    homeDistrict, deliveryFee, outstationFee, codEnabled, prepayHighRisk,
+    bankName, accountName, accountNumber, bankBranch,
+  ]);
+
+  const handleDiscard = () => {
+    if (!seller) return;
+    setShopName(seller.shop_name || '');
+    setHandle(seller.handle || '');
+    setBio(seller.bio || '');
+    setLogoUrl(seller.logo_url || '');
+    setBannerUrl(seller.banner_url || '');
+    setWhatsapp(seller.whatsapp_number || '');
+    setInstagram(seller.instagram_handle || '');
+    setTiktok(seller.tiktok_handle || '');
+    setFacebook(seller.facebook_handle || '');
+    setHomeDistrict(seller.home_district || 'Colombo');
+    setDeliveryFee(seller.delivery_fee ?? 350);
+    setOutstationFee(seller.outstation_delivery_fee ?? 450);
+    setCodEnabled(seller.cod_enabled !== false);
+    setPrepayHighRisk(seller.require_prepay_high_risk || false);
+    setBankName(seller.bank_details?.bank_name || '');
+    setAccountName(seller.bank_details?.account_name || '');
+    setAccountNumber(seller.bank_details?.account_number || '');
+    setBankBranch(seller.bank_details?.branch || '');
+    notify('Changes discarded.');
+  };
 
   const handleEnablePush = async () => {
     if (!seller?.id) return;
@@ -381,19 +435,19 @@ export default function Settings({ seller, setSeller }) {
   const hasBankDetails = Boolean(bankName.trim() || accountNumber.trim());
 
   return (
-    <form onSubmit={handleSave} className="space-y-5 max-w-2xl mx-auto pb-12">
-      {/* Top Save Sticky Bar */}
-      <div className="flex justify-between items-center bg-white border border-[#E7EBE7] rounded-[28px] p-5 shadow-xs">
-        <div>
-          <h1 className="text-lg font-black text-[#111813]">Store Identity & Settings</h1>
-          <p className="text-xs text-[#5A655D]">Manage branding, links, and fulfillment terms</p>
+    <form onSubmit={handleSave} className="space-y-5 max-w-2xl mx-auto pb-32">
+      {/* Top header — compact. Save button visible on desktop only; mobile uses the floating bar. */}
+      <div className="flex justify-between items-center bg-white border border-[#E7EBE7] rounded-[28px] p-4 sm:p-5 shadow-xs gap-3">
+        <div className="min-w-0">
+          <h1 className="text-base sm:text-lg font-black text-[#111813] truncate">Store Identity & Settings</h1>
+          <p className="text-[11px] sm:text-xs text-[#5A655D] truncate">Manage branding, links, and fulfillment terms</p>
         </div>
         <button
           type="submit"
           disabled={saving || uploadingLogo || uploadingBanner}
-          className="px-5 py-2.5 bg-[#006241] hover:bg-[#004F34] text-white rounded-2xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition active:scale-95 disabled:opacity-50"
+          className="hidden sm:flex px-4 py-2 bg-[#006241] hover:bg-[#004F34] text-white rounded-xl text-xs font-bold items-center gap-1.5 shadow-xs transition active:scale-95 disabled:opacity-50 cursor-pointer shrink-0"
         >
-          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Save className="w-4 h-4" /> Save Changes</>}
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Save className="w-3.5 h-3.5" /> Save Changes</>}
         </button>
       </div>
 
@@ -422,21 +476,21 @@ export default function Settings({ seller, setSeller }) {
         )}
 
         {pushStatus === 'subscribed' && (
-          <div className="flex items-center justify-between bg-[#E8F0E9] border border-[#C2D6C5] rounded-2xl p-4">
-            <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between bg-[#E8F0E9] border border-[#C2D6C5] rounded-2xl p-4 gap-3">
+            <div className="flex items-center gap-3 min-w-0">
               <div className="w-9 h-9 rounded-xl bg-white flex items-center justify-center shrink-0">
                 <Bell className="w-4 h-4 text-[#006241]" />
               </div>
-              <div>
-                <div className="font-black text-xs text-[#006241]">Notifications Active</div>
-                <div className="text-[10px] text-[#006241]/70">This device will receive order alerts</div>
+              <div className="min-w-0">
+                <div className="font-black text-xs text-[#006241] truncate">Notifications Active</div>
+                <div className="text-[10px] text-[#006241]/70 truncate">This device will receive order alerts</div>
               </div>
             </div>
             <button
               type="button"
               onClick={handleDisablePush}
               disabled={pushBusy}
-              className="px-3.5 py-2 bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-[11px] font-bold transition active:scale-95 disabled:opacity-50 flex items-center gap-1.5"
+              className="px-3.5 py-2 bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-[11px] font-bold transition active:scale-95 disabled:opacity-50 flex items-center gap-1.5 cursor-pointer shrink-0"
             >
               {pushBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><BellOff className="w-3.5 h-3.5" /> Disable</>}
             </button>
@@ -448,7 +502,7 @@ export default function Settings({ seller, setSeller }) {
             type="button"
             onClick={handleEnablePush}
             disabled={pushBusy || pushStatus === 'checking'}
-            className="w-full py-3.5 bg-[#006241] hover:bg-[#004F34] text-white font-bold rounded-2xl text-xs transition active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+            className="w-full py-3.5 bg-[#006241] hover:bg-[#004F34] text-white font-bold rounded-2xl text-xs transition active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
           >
             {pushBusy || pushStatus === 'checking' ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -540,7 +594,7 @@ export default function Settings({ seller, setSeller }) {
                   type="button"
                   onClick={() => logoInputRef.current?.click()}
                   disabled={uploadingLogo}
-                  className="px-3 py-1.5 bg-white hover:bg-stone-50 border border-[#E7EBE7] rounded-xl text-[11px] font-bold text-[#111813] flex items-center gap-1 shadow-xs transition active:scale-95"
+                  className="px-3 py-1.5 bg-white hover:bg-stone-50 border border-[#E7EBE7] rounded-xl text-[11px] font-bold text-[#111813] flex items-center gap-1 shadow-xs transition active:scale-95 disabled:opacity-50 cursor-pointer"
                 >
                   {uploadingLogo ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Upload className="w-3.5 h-3.5" /> Pick Image</>}
                 </button>
@@ -548,7 +602,7 @@ export default function Settings({ seller, setSeller }) {
                   <button
                     type="button"
                     onClick={() => setLogoUrl('')}
-                    className="text-[10px] text-rose-600 hover:underline block font-semibold"
+                    className="text-[10px] text-rose-600 hover:underline block font-semibold cursor-pointer"
                   >
                     Remove Logo
                   </button>
@@ -580,7 +634,7 @@ export default function Settings({ seller, setSeller }) {
                   type="button"
                   onClick={() => bannerInputRef.current?.click()}
                   disabled={uploadingBanner}
-                  className="px-3 py-1.5 bg-white hover:bg-stone-50 border border-[#E7EBE7] rounded-xl text-[11px] font-bold text-[#111813] flex items-center gap-1 shadow-xs transition active:scale-95"
+                  className="px-3 py-1.5 bg-white hover:bg-stone-50 border border-[#E7EBE7] rounded-xl text-[11px] font-bold text-[#111813] flex items-center gap-1 shadow-xs transition active:scale-95 disabled:opacity-50 cursor-pointer"
                 >
                   {uploadingBanner ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Upload className="w-3.5 h-3.5" /> Pick Image</>}
                 </button>
@@ -588,7 +642,7 @@ export default function Settings({ seller, setSeller }) {
                   <button
                     type="button"
                     onClick={() => setBannerUrl('')}
-                    className="text-[10px] text-rose-600 hover:underline block font-semibold"
+                    className="text-[10px] text-rose-600 hover:underline block font-semibold cursor-pointer"
                   >
                     Remove Banner
                   </button>
@@ -612,7 +666,7 @@ export default function Settings({ seller, setSeller }) {
           </div>
 
           <div>
-            <label className="block font-semibold mb-1">Store URL Handle *</label>
+            <label className="block font-semibold mb-1">Your Store Link *</label>
             <div className="flex items-center bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl px-3 py-2 text-xs">
               <span className="text-[#5A655D] font-mono select-none">{window.location.host}/</span>
               <input
@@ -714,7 +768,7 @@ export default function Settings({ seller, setSeller }) {
             value={homeDistrict}
             onChange={(e) => setHomeDistrict(e.target.value)}
             required
-            className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl font-bold text-xs"
+            className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl font-bold text-xs cursor-pointer"
           >
             {SL_DISTRICTS.map((d) => (
               <option key={d} value={d}>{d}</option>
@@ -748,7 +802,7 @@ export default function Settings({ seller, setSeller }) {
         </div>
 
         <div className="pt-2 border-t border-[#E7EBE7] space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <div>
               <div className="font-bold text-[#111813]">Enable Cash on Delivery (COD)</div>
               <div className="text-[11px] text-[#5A655D]">Allow customers to pay in cash upon receiving goods</div>
@@ -757,11 +811,11 @@ export default function Settings({ seller, setSeller }) {
               type="checkbox"
               checked={codEnabled}
               onChange={(e) => setCodEnabled(e.target.checked)}
-              className="w-5 h-5 accent-[#006241] cursor-pointer"
+              className="w-5 h-5 accent-[#006241] cursor-pointer shrink-0"
             />
           </div>
 
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <div>
               <div className="font-bold text-[#111813]">High-Risk Prepay Requirement</div>
               <div className="text-[11px] text-[#5A655D]">Require advance bank payment for flagged high-risk numbers</div>
@@ -770,7 +824,7 @@ export default function Settings({ seller, setSeller }) {
               type="checkbox"
               checked={prepayHighRisk}
               onChange={(e) => setPrepayHighRisk(e.target.checked)}
-              className="w-5 h-5 accent-[#006241] cursor-pointer"
+              className="w-5 h-5 accent-[#006241] cursor-pointer shrink-0"
             />
           </div>
         </div>
@@ -823,7 +877,7 @@ export default function Settings({ seller, setSeller }) {
               type="button"
               onClick={handleExportOrders}
               disabled={!!exporting}
-              className={`w-full py-2.5 font-bold rounded-xl text-xs transition active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 ${
+              className={`w-full py-2.5 font-bold rounded-xl text-xs transition active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer ${
                 lastExported === 'orders'
                   ? 'bg-[#E8F0E9] text-[#006241]'
                   : 'bg-[#F4F6F4] hover:bg-stone-200 text-[#111813] border border-[#E7EBE7]'
@@ -856,7 +910,7 @@ export default function Settings({ seller, setSeller }) {
             type="button"
             onClick={handleExportCustomers}
             disabled={!!exporting}
-            className={`w-full py-2.5 font-bold rounded-xl text-xs transition active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 ${
+            className={`w-full py-2.5 font-bold rounded-xl text-xs transition active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer ${
               lastExported === 'customers'
                 ? 'bg-[#E8F0E9] text-[#006241]'
                 : 'bg-[#F4F6F4] hover:bg-stone-200 text-[#111813] border border-[#E7EBE7]'
@@ -963,6 +1017,37 @@ export default function Settings({ seller, setSeller }) {
         onApply={handleBannerApply}
         onSkip={handleBannerSkipped}
       />
+
+      {/* FLOATING SAVE BAR — appears only when there are unsaved changes */}
+      {isDirty && (
+        <div className="fixed bottom-20 sm:bottom-6 left-4 right-4 sm:left-auto sm:right-6 sm:w-auto z-40 pointer-events-none">
+          <div className="bg-[#18181B] text-white rounded-[20px] shadow-2xl shadow-stone-900/40 border border-stone-800/80 flex items-center gap-2 p-2 pl-4 pointer-events-auto">
+            <div className="flex-1 sm:flex-none min-w-0 pr-1">
+              <div className="text-xs font-black leading-tight">Unsaved changes</div>
+              <div className="text-[10px] text-stone-400 leading-tight">Tap Save to keep them</div>
+            </div>
+            <button
+              type="button"
+              onClick={handleDiscard}
+              disabled={saving}
+              className="px-3 py-2 text-xs font-bold text-stone-300 hover:text-white rounded-xl hover:bg-white/10 transition disabled:opacity-50 cursor-pointer shrink-0"
+            >
+              Discard
+            </button>
+            <button
+              type="submit"
+              disabled={saving || uploadingLogo || uploadingBanner}
+              className="px-4 py-2 bg-[#006241] hover:bg-[#004F34] text-white rounded-xl text-xs font-bold transition active:scale-95 disabled:opacity-60 flex items-center gap-1.5 cursor-pointer shrink-0"
+            >
+              {saving ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <><Save className="w-3.5 h-3.5" /> Save</>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
     </form>
   );
 }
