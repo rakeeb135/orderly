@@ -1,22 +1,40 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useOutletContext } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { supabase } from './supabase';
 import { fetchProducts, fetchCurrentSeller } from './services/dbService';
 
+/* ------------------------------------------------------------------ */
+/*  Eager imports (buyer-facing + shell)                              */
+/* ------------------------------------------------------------------ */
 import Layout from './components/Layout';
 import Auth from './pages/Auth';
-import Dashboard from './pages/Dashboard';
-import Orders from './pages/Orders';
-import OrderDetail from './pages/OrderDetail';
-import Products from './pages/Products';
-import Customers from './pages/Customers';
-import Settings from './pages/Settings';
 import Storefront from './pages/Storefront';
 import OrderTracker from './pages/OrderTracker';
-import AdminPortal from './pages/AdminPortal';
 import QuickOrder from './pages/QuickOrder';
-import Renewal from './pages/Renewal';
+
+/* ------------------------------------------------------------------ */
+/*  Lazy imports (seller-only — buyers never download these)           */
+/* ------------------------------------------------------------------ */
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Orders = lazy(() => import('./pages/Orders'));
+const OrderDetail = lazy(() => import('./pages/OrderDetail'));
+const Products = lazy(() => import('./pages/Products'));
+const Customers = lazy(() => import('./pages/Customers'));
+const Settings = lazy(() => import('./pages/Settings'));
+const AdminPortal = lazy(() => import('./pages/AdminPortal'));
+const Renewal = lazy(() => import('./pages/Renewal'));
+
+/* ------------------------------------------------------------------ */
+/*  Suspense fallback                                                  */
+/* ------------------------------------------------------------------ */
+function PageLoading() {
+  return (
+    <div className="min-h-screen bg-[#F4F6F4] flex items-center justify-center">
+      <Loader2 className="w-8 h-8 text-[#006241] animate-spin" />
+    </div>
+  );
+}
 
 function ProtectedShell() {
   const [seller, setSeller] = useState(null);
@@ -83,7 +101,7 @@ function ProtectedShell() {
     return <Navigate to="/login" replace />;
   }
 
-  // Super admin: always has full access
+  // Super admin: always full access
   if (seller.is_super_admin) {
     return (
       <Layout
@@ -101,22 +119,28 @@ function ProtectedShell() {
     );
   }
 
-  // Admin-suspended → always locked out
+  // Admin-suspended → full lockout
   if (seller.is_active === false) {
-    return <Renewal seller={seller} variant="full" />;
+    return (
+      <Suspense fallback={<PageLoading />}>
+        <Renewal seller={seller} variant="full" />
+      </Suspense>
+    );
   }
 
-  // Expiry check → compute days remaining
+  // Expiry check
   if (seller.subscription_expires_at) {
     const expiryDate = new Date(seller.subscription_expires_at);
     const msRemaining = expiryDate.getTime() - Date.now();
     const daysRemaining = Math.ceil(msRemaining / (1000 * 60 * 60 * 24));
 
-    // Locked out: 3+ days past expiry
     if (daysRemaining <= -3) {
-      return <Renewal seller={seller} variant="full" />;
+      return (
+        <Suspense fallback={<PageLoading />}>
+          <Renewal seller={seller} variant="full" />
+        </Suspense>
+      );
     }
-    // Otherwise: -3 < daysRemaining <= 7 → grace/reminder handled by banner
   }
 
   return (
@@ -138,26 +162,27 @@ function ProtectedShell() {
 export default function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<Auth />} />
-        <Route path="/admin" element={<AdminPortal />} />
-        <Route path="/order/:id" element={<OrderTracker />} />
+      <Suspense fallback={<PageLoading />}>
+        <Routes>
+          <Route path="/login" element={<Auth />} />
+          <Route path="/admin" element={<AdminPortalWrapper />} />
+          <Route path="/order/:id" element={<OrderTracker />} />
 
-        <Route element={<ProtectedShell />}>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<DashboardWrapper />} />
-          <Route path="/orders" element={<OrdersWrapper />} />
-          <Route path="/orders/:id" element={<OrderDetailWrapper />} />
-          <Route path="/products" element={<ProductsWrapper />} />
-          <Route path="/customers" element={<CustomersWrapper />} />
-          <Route path="/settings" element={<SettingsWrapper />} />
-          <Route path="/renew" element={<RenewWrapper />} />
-        </Route>
+          <Route element={<ProtectedShell />}>
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard" element={<DashboardWrapper />} />
+            <Route path="/orders" element={<OrdersWrapper />} />
+            <Route path="/orders/:id" element={<OrderDetailWrapper />} />
+            <Route path="/products" element={<ProductsWrapper />} />
+            <Route path="/customers" element={<CustomersWrapper />} />
+            <Route path="/settings" element={<SettingsWrapper />} />
+            <Route path="/renew" element={<RenewWrapper />} />
+          </Route>
 
-        {/* Public buyer-facing routes (order matters!) */}
-        <Route path="/:handle/p/:slug" element={<QuickOrder />} />
-        <Route path="/:handle" element={<Storefront />} />
-      </Routes>
+          <Route path="/:handle/p/:slug" element={<QuickOrder />} />
+          <Route path="/:handle" element={<Storefront />} />
+        </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }
@@ -198,4 +223,8 @@ function SettingsWrapper() {
 function RenewWrapper() {
   const { seller } = useOutletContext();
   return <Renewal seller={seller} variant="embedded" />;
+}
+
+function AdminPortalWrapper() {
+  return <AdminPortal />;
 }

@@ -10,7 +10,11 @@
     <title>Ordy — Seller Command Center</title>
     <meta name="description" content="Streamlined order fulfillment and management pipeline for Sri Lankan merchants." />
 
-    <!-- App Icons (PNG — works everywhere including iOS) -->
+    <!-- Preconnect to Supabase — first DB call is faster -->
+    <link rel="preconnect" href="https://lgluvlpljmdqknqjmixz.supabase.co" crossorigin />
+    <link rel="dns-prefetch" href="https://lgluvlpljmdqknqjmixz.supabase.co" />
+
+    <!-- App Icons -->
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
     <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
@@ -27,7 +31,6 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Ordy" />
 
-    <!-- Prevent iOS from auto-linking phone numbers in text -->
     <meta name="format-detection" content="telephone=no" />
   </head>
   <body class="bg-[#F4F6F4] text-[#18181B] antialiased">
