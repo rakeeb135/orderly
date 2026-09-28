@@ -283,8 +283,8 @@ export default function Customers({ seller }) {
 
       {/* EDIT CUSTOMER MODAL */}
       {editingCustomer && (
-        <div className="fixed inset-0 bg-[#111813]/70 flex items-center justify-center p-3 sm:p-4 z-50 overflow-y-auto">
-          <div className="bg-white rounded-[28px] p-6 max-w-md w-full shadow-2xl space-y-4 text-xs">
+        <div className="fixed inset-x-0 top-0 h-[100dvh] bg-[#111813]/70 flex items-center justify-center p-3 sm:p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-[28px] p-6 max-w-md w-full shadow-2xl space-y-4 max-h-[92dvh] overflow-y-auto scroll-pb-40 text-xs">
             <div className="flex justify-between items-center border-b border-[#E7EBE7] pb-3">
               <h3 className="font-extrabold text-sm">Edit Customer Profile</h3>
               <button onClick={() => setEditingCustomer(null)} className="text-stone-400 hover:text-black">

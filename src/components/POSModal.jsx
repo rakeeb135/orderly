@@ -280,8 +280,8 @@ export default function POSModal({ isOpen, onClose, seller, products = [], onOrd
   );
 
   return (
-    <div className="fixed inset-0 bg-[#111813]/70 flex items-center justify-center p-3 sm:p-4 z-50 overflow-y-auto">
-      <div className="bg-white rounded-[32px] p-6 max-w-2xl w-full shadow-2xl space-y-4 max-h-[92dvh] overflow-y-auto text-[#111813]">
+    <div className="fixed inset-x-0 top-0 h-[100dvh] bg-[#111813]/70 flex items-center justify-center p-3 sm:p-4 z-50 overflow-y-auto">
+      <div className="bg-white rounded-[32px] p-6 max-w-2xl w-full shadow-2xl space-y-4 max-h-[92dvh] overflow-y-auto scroll-pb-40 text-[#111813]">
         {/* Top Header */}
         <div className="flex justify-between items-center border-b border-[#E7EBE7] pb-3">
           <div>
