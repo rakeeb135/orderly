@@ -12,6 +12,7 @@ import {
   formatLKR,
 } from '../services/dbService';
 import { normalizeSLPhone } from '../utils/phone';
+import { SkeletonLine, SkeletonBlock } from '../components/Skeleton';
 import { supabase } from '../supabase';
 
 function relativeTime(iso) {
@@ -54,6 +55,90 @@ const EMPTY_SUMMARY = {
   pipeline_delivered: 0,
   waiting_on_buyer: 0,
 };
+
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-4">
+      {/* Welcome card */}
+      <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-5 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-2">
+            <SkeletonLine className="h-4 w-44" />
+            <SkeletonLine className="h-3 w-64" />
+          </div>
+          <SkeletonBlock className="h-10 w-44 rounded-2xl" />
+        </div>
+      </div>
+
+      {/* Pipeline snapshot */}
+      <div className="bg-white border border-[#E7EBE7] rounded-[24px] shadow-xs overflow-hidden">
+        <div className="flex items-center justify-between px-5 pt-4 pb-2">
+          <SkeletonLine className="h-3 w-24" />
+          <SkeletonLine className="h-3 w-14" />
+        </div>
+        <div className="grid grid-cols-4 divide-x divide-[#E7EBE7] border-t border-[#E7EBE7]">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="px-2 py-3.5 flex flex-col items-center gap-1.5">
+              <SkeletonBlock className="w-8 h-8 rounded-xl" />
+              <SkeletonLine className="h-4 w-6" />
+              <SkeletonLine className="h-2 w-12" />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Metric row */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-4 shadow-xs space-y-2.5">
+          <div className="flex items-center gap-2">
+            <SkeletonBlock className="w-7 h-7 rounded-xl" />
+            <SkeletonLine className="h-2.5 w-16" />
+          </div>
+          <SkeletonLine className="h-6 w-24" />
+          <SkeletonLine className="h-2.5 w-14" />
+        </div>
+        <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-4 shadow-xs space-y-2.5">
+          <div className="flex items-center gap-2">
+            <SkeletonBlock className="w-7 h-7 rounded-xl" />
+            <SkeletonLine className="h-2.5 w-16" />
+          </div>
+          <SkeletonLine className="h-6 w-24" />
+          <SkeletonLine className="h-2.5 w-14" />
+        </div>
+        <div className="col-span-2 md:col-span-1 bg-white border border-[#E7EBE7] rounded-[24px] p-4 shadow-xs space-y-2.5">
+          <div className="flex items-center gap-2">
+            <SkeletonBlock className="w-7 h-7 rounded-xl" />
+            <SkeletonLine className="h-2.5 w-20" />
+          </div>
+          <SkeletonLine className="h-6 w-10" />
+          <SkeletonLine className="h-2.5 w-16" />
+        </div>
+      </div>
+
+      {/* Recent orders */}
+      <div className="bg-white border border-[#E7EBE7] rounded-[24px] shadow-xs overflow-hidden">
+        <div className="flex justify-between items-center px-5 pt-4 pb-3 border-b border-[#E7EBE7]">
+          <SkeletonLine className="h-4 w-28" />
+          <SkeletonLine className="h-3 w-16" />
+        </div>
+        <div className="divide-y divide-[#E7EBE7]">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div key={i} className="flex items-center justify-between gap-3 px-5 py-3">
+              <div className="flex-1 min-w-0 space-y-1.5">
+                <SkeletonLine className="h-3 w-32" />
+                <SkeletonLine className="h-3 w-40" />
+              </div>
+              <div className="space-y-1.5">
+                <SkeletonLine className="h-3.5 w-16 ml-auto" />
+                <SkeletonLine className="h-2.5 w-10 ml-auto" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function Dashboard({ seller }) {
   const navigate = useNavigate();
@@ -149,11 +234,7 @@ export default function Dashboard({ seller }) {
   /*  Loading                                                          */
   /* ---------------------------------------------------------------- */
   if (loading) {
-    return (
-      <div className="flex items-center justify-center p-12">
-        <Loader2 className="w-8 h-8 text-[#006241] animate-spin" />
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   if (loadError && recentOrders.length === 0 && summary.order_count === 0) {

@@ -17,6 +17,7 @@ import {
 } from '../services/dbService';
 import { supabase } from '../supabase';
 import PrintManifestModal from '../components/PrintManifestModal';
+import { SkeletonLine, SkeletonBlock } from '../components/Skeleton';
 import { notify } from '../components/Toast';
 import { confirm } from '../components/ConfirmModal';
 import { normalizeSLPhone } from '../utils/phone';
@@ -122,6 +123,32 @@ function useDebounced(value, delay = 300) {
     return () => clearTimeout(t);
   }, [value, delay]);
   return debounced;
+}
+
+function OrderCardSkeleton() {
+  return (
+    <div className="relative bg-white border border-[#E4E4E7] rounded-2xl overflow-hidden">
+      <div className="absolute left-0 top-0 bottom-0 w-1 bg-stone-200 animate-pulse" />
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 p-3.5 pl-4">
+        <div className="flex-1 min-w-0 space-y-2">
+          <div className="flex items-center gap-2">
+            <SkeletonLine className="h-4 w-14" />
+            <SkeletonLine className="h-4 w-20" />
+            <SkeletonLine className="h-3 w-16 ml-auto" />
+          </div>
+          <SkeletonLine className="h-3.5 w-40" />
+          <SkeletonLine className="h-3 w-56" />
+        </div>
+        <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-[#E4E4E7] sm:pl-3">
+          <div className="space-y-1.5">
+            <SkeletonLine className="h-4 w-20 ml-auto" />
+            <SkeletonLine className="h-3 w-12 ml-auto" />
+          </div>
+          <SkeletonBlock className="w-8 h-8 rounded-xl" />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
@@ -821,9 +848,11 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
 
       {/* List */}
       {loading ? (
-        <div className="bg-white border border-[#E4E4E7] rounded-[24px] p-16 flex justify-center items-center">
-          <Loader2 className="w-6 h-6 text-[#006241] animate-spin" />
-        </div>
+              <div className="space-y-2">
+        {[...Array(5)].map((_, i) => (
+          <OrderCardSkeleton key={i} />
+        ))}
+      </div>
       ) : loadError ? (
         <ErrorCard message={loadError} onRetry={loadFirstPage} label="orders" />
       ) : orders.length === 0 ? (
