@@ -74,7 +74,6 @@ export default function Layout({ seller, setSeller, products, setProducts, onOrd
   return (
     <div className="min-h-screen bg-[#F4F6F4] text-[#111813] font-sans flex flex-col md:flex-row">
       <Toast />
-      <ConfirmHost />
       <InstallAppModal shopName={seller?.shop_name || 'Ordy'} />
 
       {/* Desktop floating notification bell */}

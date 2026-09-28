@@ -8,6 +8,7 @@ import { fetchProducts, fetchCurrentSeller } from './services/dbService';
 /*  Eager imports (buyer-facing + shell)                              */
 /* ------------------------------------------------------------------ */
 import Layout from './components/Layout';
+import ConfirmHost from './components/ConfirmModal';
 import Auth from './pages/Auth';
 import Storefront from './pages/Storefront';
 import OrderTracker from './pages/OrderTracker';
@@ -162,6 +163,7 @@ function ProtectedShell() {
 export default function App() {
   return (
     <BrowserRouter>
+      <ConfirmHost />
       <Suspense fallback={<PageLoading />}>
         <Routes>
           <Route path="/login" element={<Auth />} />
