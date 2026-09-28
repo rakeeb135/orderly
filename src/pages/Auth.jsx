@@ -133,12 +133,12 @@ export default function Auth() {
         {/* Hero copy */}
         <div className="space-y-3">
           <h1 className="text-3xl font-black text-[#111813] tracking-tight uppercase leading-[1.05]">
-            {isRegistering ? 'Launch your store in 60 seconds.' : 'Your whole business. One app.'}
+            {isRegistering ? 'Launch your store in 60 seconds.' : 'Turn DMs into orders.'}
           </h1>
           <p className="text-xs text-[#5A655D] leading-relaxed">
             {isRegistering
               ? 'Set up your store, add products, and start taking orders from WhatsApp and Instagram — all in one place.'
-              : 'Run your social commerce calmly from your phone or desktop. Eliminate COD returns and messy DM logs.'}
+              : 'The calm command center for Sri Lankan social sellers. Track orders, print labels, and protect yourself from bad COD buyers.'}
           </p>
         </div>
 
