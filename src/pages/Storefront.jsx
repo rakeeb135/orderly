@@ -591,7 +591,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
         </div>
         <button
           onClick={openCheckout}
-          className="p-2 bg-white border border-[#E7EBE7] rounded-full text-[#5A655D] shadow-xs relative active:scale-95"
+          className="p-2 bg-white border border-[#E7EBE7] rounded-full text-[#5A655D] shadow-xs relative active:scale-95 cursor-pointer"
         >
           <ShoppingCart className="w-4 h-4" />
           {totalItems > 0 && (
@@ -697,7 +697,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
           <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none -mx-4 px-4">
             <button
               onClick={() => setActiveCategory('all')}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition active:scale-95 ${
+              className={`px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition active:scale-95 cursor-pointer ${
                 activeCategory === 'all'
                   ? 'bg-[#006241] text-white shadow-xs'
                   : 'bg-white text-[#5A655D] border border-[#E7EBE7] hover:border-stone-400'
@@ -711,7 +711,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                 <button
                   key={cat}
                   onClick={() => setActiveCategory(cat)}
-                  className={`px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition active:scale-95 ${
+                  className={`px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition active:scale-95 cursor-pointer ${
                     activeCategory === cat
                       ? 'bg-[#006241] text-white shadow-xs'
                       : 'bg-white text-[#5A655D] border border-[#E7EBE7] hover:border-stone-400'
@@ -805,7 +805,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); openProductModal(p); }}
-                    className={`w-full py-2 rounded-xl text-xs font-bold transition active:scale-95 shadow-xs ${
+                    className={`w-full py-2 rounded-xl text-xs font-bold transition active:scale-95 shadow-xs cursor-pointer ${
                       soldOut
                         ? 'bg-stone-200 text-stone-500'
                         : 'bg-[#111813] hover:bg-stone-800 text-white'
@@ -823,12 +823,12 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
       {/* Product modal */}
       {selectedProductView && (
         <div className="fixed inset-x-0 top-0 h-[100dvh] bg-[#111813]/70 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
-          <div className="bg-white w-full sm:max-w-md rounded-t-[32px] sm:rounded-[32px] p-6 shadow-2xl space-y-4 max-h-[92dvh] overflow-y-auto text-[#111813]">
+          <div className="bg-white w-full sm:max-w-md rounded-t-[32px] sm:rounded-[32px] p-6 shadow-2xl space-y-4 max-h-[92dvh] overflow-y-auto scroll-pb-40 text-[#111813]">
             <div className="flex justify-between items-center border-b border-[#E7EBE7] pb-2">
               <span className="text-xs font-bold text-[#5A655D] uppercase tracking-wider">
                 {selectedProductView.category || 'Product'}
               </span>
-              <button onClick={closeProductModal} className="text-stone-400 hover:text-black">
+              <button onClick={closeProductModal} className="text-stone-400 hover:text-black cursor-pointer" aria-label="Close">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -854,7 +854,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                     <button
                       key={idx}
                       onClick={() => setActivePhotoIdx(idx)}
-                      className={`w-12 h-12 rounded-xl overflow-hidden border-2 shrink-0 ${
+                      className={`w-12 h-12 rounded-xl overflow-hidden border-2 shrink-0 cursor-pointer ${
                         activePhotoIdx === idx ? 'border-[#006241]' : 'border-transparent opacity-60'
                       }`}
                     >
@@ -925,7 +925,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                           key={col}
                           type="button"
                           onClick={() => { setChosenColor(col); setVariantError(''); }}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition ${
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
                             chosenColor === col
                               ? 'bg-[#006241] text-white border-[#006241]'
                               : 'bg-stone-50 text-[#111813] border-[#E7EBE7] hover:border-stone-400'
@@ -949,7 +949,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                           key={sz}
                           type="button"
                           onClick={() => { setChosenSize(sz); setVariantError(''); }}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition ${
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
                             chosenSize === sz
                               ? 'bg-[#006241] text-white border-[#006241]'
                               : 'bg-stone-50 text-[#111813] border-[#E7EBE7] hover:border-stone-400'
@@ -972,7 +972,8 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                     type="button"
                     onClick={() => setChosenQty((q) => Math.max(1, q - 1))}
                     disabled={chosenQty <= 1}
-                    className="w-8 h-8 rounded-lg bg-white border border-[#E7EBE7] flex items-center justify-center disabled:opacity-40 active:scale-95 transition"
+                    className="w-8 h-8 rounded-lg bg-white border border-[#E7EBE7] flex items-center justify-center disabled:opacity-40 active:scale-95 transition cursor-pointer"
+                    aria-label="Decrease quantity"
                   >
                     <Minus className="w-3.5 h-3.5" />
                   </button>
@@ -980,7 +981,8 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                   <button
                     type="button"
                     onClick={() => setChosenQty((q) => Math.min(99, q + 1))}
-                    className="w-8 h-8 rounded-lg bg-white border border-[#E7EBE7] flex items-center justify-center active:scale-95 transition"
+                    className="w-8 h-8 rounded-lg bg-white border border-[#E7EBE7] flex items-center justify-center active:scale-95 transition cursor-pointer"
+                    aria-label="Increase quantity"
                   >
                     <Plus className="w-3.5 h-3.5" />
                   </button>
@@ -1016,7 +1018,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                 <button
                   type="button"
                   onClick={addToCartFromModal}
-                  className={`w-full py-3.5 font-bold rounded-2xl text-xs active:scale-95 transition shadow-xs flex items-center justify-center gap-2 ${
+                  className={`w-full py-3.5 font-bold rounded-2xl text-xs active:scale-95 transition shadow-xs flex items-center justify-center gap-2 cursor-pointer ${
                     justAdded
                       ? 'bg-[#E8F0E9] text-[#006241] border border-[#C2D6C5]'
                       : 'bg-[#006241] hover:bg-[#004F34] text-white'
@@ -1044,7 +1046,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                     <button
                       type="button"
                       onClick={() => { closeProductModal(); openCheckout(); }}
-                      className="px-4 py-2 bg-[#111813] hover:bg-stone-800 text-white rounded-xl text-xs font-bold active:scale-95 transition flex items-center gap-1 shrink-0"
+                      className="px-4 py-2 bg-[#111813] hover:bg-stone-800 text-white rounded-xl text-xs font-bold active:scale-95 transition flex items-center gap-1 shrink-0 cursor-pointer"
                     >
                       Checkout <ArrowRight className="w-3 h-3" />
                     </button>
@@ -1065,7 +1067,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
           </div>
           <button
             onClick={openCheckout}
-            className="px-5 py-2 bg-[#006241] hover:bg-[#004F34] text-white rounded-2xl text-xs font-bold active:scale-95 transition"
+            className="px-5 py-2 bg-[#006241] hover:bg-[#004F34] text-white rounded-2xl text-xs font-bold active:scale-95 transition cursor-pointer"
           >
             Checkout
           </button>
@@ -1074,13 +1076,13 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
 
       {/* Checkout drawer */}
       {showCheckout && (
-        <div className="fixed inset-0 bg-[#111813]/70 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
+        <div className="fixed inset-x-0 top-0 h-[100dvh] bg-[#111813]/70 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
           <div className="bg-white w-full sm:max-w-md rounded-t-[32px] sm:rounded-[32px] p-6 shadow-2xl space-y-4 max-h-[92dvh] overflow-y-auto scroll-pb-40 text-[#111813]">
             <div className="flex justify-between items-center border-b border-[#E7EBE7] pb-3">
               <h3 className="font-black text-sm">
                 {placedOrder ? 'Order Confirmed' : 'Delivery & Checkout'}
               </h3>
-              <button onClick={closeCheckout} className="text-stone-400 hover:text-black">
+              <button onClick={closeCheckout} className="text-stone-400 hover:text-black cursor-pointer" aria-label="Close">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1158,7 +1160,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                   <button
                     type="button"
                     onClick={handleCopyBankDetails}
-                    className="w-full py-2.5 bg-[#F4F6F4] hover:bg-stone-200 border border-[#E7EBE7] text-[#111813] font-bold rounded-2xl text-xs flex items-center justify-center gap-2 active:scale-95 transition"
+                    className="w-full py-2.5 bg-[#F4F6F4] hover:bg-stone-200 border border-[#E7EBE7] text-[#111813] font-bold rounded-2xl text-xs flex items-center justify-center gap-2 active:scale-95 transition cursor-pointer"
                   >
                     {copied ? (
                       <><CheckCircle2 className="w-4 h-4 text-[#006241]" /> Copied!</>
@@ -1177,7 +1179,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                     <button
                       type="button"
                       onClick={closeCheckout}
-                      className="flex-1 text-center py-2.5 bg-white border border-[#E7EBE7] text-[#5A655D] hover:text-black rounded-2xl text-xs font-bold active:scale-95 transition"
+                      className="flex-1 text-center py-2.5 bg-white border border-[#E7EBE7] text-[#5A655D] hover:text-black rounded-2xl text-xs font-bold active:scale-95 transition cursor-pointer"
                     >
                       Continue Shopping
                     </button>
@@ -1206,7 +1208,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                     <button
                       type="button"
                       onClick={closeCheckout}
-                      className="w-full py-2.5 text-[#5A655D] hover:text-black text-xs font-semibold"
+                      className="w-full py-2.5 text-[#5A655D] hover:text-black text-xs font-semibold cursor-pointer"
                     >
                       Continue shopping
                     </button>
@@ -1221,7 +1223,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                     <button
                       type="button"
                       onClick={closeCheckout}
-                      className="text-[#006241] hover:underline normal-case tracking-normal text-[11px]"
+                      className="text-[#006241] hover:underline normal-case tracking-normal text-[11px] cursor-pointer"
                     >
                       + Add more
                     </button>
@@ -1259,7 +1261,8 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                         <button
                           type="button"
                           onClick={() => updateCartQty(item.itemKey, -1)}
-                          className="w-6 h-6 rounded flex items-center justify-center text-[#5A655D] hover:bg-white active:scale-90 transition"
+                          className="w-6 h-6 rounded flex items-center justify-center text-[#5A655D] hover:bg-white active:scale-90 transition cursor-pointer"
+                          aria-label="Decrease quantity"
                         >
                           <Minus className="w-3 h-3" />
                         </button>
@@ -1269,7 +1272,8 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                         <button
                           type="button"
                           onClick={() => updateCartQty(item.itemKey, 1)}
-                          className="w-6 h-6 rounded flex items-center justify-center text-[#5A655D] hover:bg-white active:scale-90 transition"
+                          className="w-6 h-6 rounded flex items-center justify-center text-[#5A655D] hover:bg-white active:scale-90 transition cursor-pointer"
+                          aria-label="Increase quantity"
                         >
                           <Plus className="w-3 h-3" />
                         </button>
@@ -1278,7 +1282,8 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                       <button
                         type="button"
                         onClick={() => removeCartItem(item.itemKey)}
-                        className="p-1.5 text-stone-400 hover:text-rose-600 active:scale-90 transition shrink-0"
+                        className="p-1.5 text-stone-400 hover:text-rose-600 active:scale-90 transition shrink-0 cursor-pointer"
+                        aria-label="Remove item"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -1339,8 +1344,8 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
 
                 <div>
                   <div className="flex justify-between items-center mb-1">
-                    <label className="font-semibold">Secondary Phone <span className="text-stone-400 font-normal">(Optional)</span></label>
-                    <span className="text-[10px] text-[#5A655D]">For courier delivery</span>
+                    <label className="font-semibold">Backup Phone <span className="text-stone-400 font-normal">(Optional)</span></label>
+                    <span className="text-[10px] text-[#5A655D]">Only if WhatsApp is busy</span>
                   </div>
                   <input
                     type="tel"
@@ -1401,7 +1406,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                       <button
                         type="button"
                         onClick={() => setPaymentMethod('COD')}
-                        className={`py-3 rounded-xl text-xs font-bold border transition active:scale-95 flex flex-col items-center gap-1 ${
+                        className={`py-3 rounded-xl text-xs font-bold border transition active:scale-95 flex flex-col items-center gap-1 cursor-pointer ${
                           paymentMethod === 'COD'
                             ? 'bg-[#006241] text-white border-[#006241]'
                             : 'bg-white text-[#111813] border-[#E7EBE7] hover:border-stone-400'
@@ -1413,7 +1418,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                       <button
                         type="button"
                         onClick={() => setPaymentMethod('Bank')}
-                        className={`py-3 rounded-xl text-xs font-bold border transition active:scale-95 flex flex-col items-center gap-1 ${
+                        className={`py-3 rounded-xl text-xs font-bold border transition active:scale-95 flex flex-col items-center gap-1 cursor-pointer ${
                           paymentMethod === 'Bank'
                             ? 'bg-[#006241] text-white border-[#006241]'
                             : 'bg-white text-[#111813] border-[#E7EBE7] hover:border-stone-400'
@@ -1435,7 +1440,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                 <button
                   type="submit"
                   disabled={placing || cart.length === 0}
-                  className="w-full py-3.5 bg-[#006241] hover:bg-[#004F34] text-white font-bold rounded-2xl active:scale-95 transition shadow-xs disabled:opacity-50 mt-2"
+                  className="w-full py-3.5 bg-[#006241] hover:bg-[#004F34] text-white font-bold rounded-2xl active:scale-95 transition shadow-xs disabled:opacity-50 mt-2 cursor-pointer"
                 >
                   {placing
                     ? <Loader2 className="w-4 h-4 animate-spin mx-auto" />

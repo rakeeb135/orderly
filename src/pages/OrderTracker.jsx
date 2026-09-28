@@ -490,12 +490,12 @@ export default function OrderTracker() {
               </div>
 
               <div>
-                <label className="block font-semibold mb-1">Secondary Phone (Optional)</label>
+                <label className="block font-semibold mb-1">Backup Phone (Optional)</label>
                 <input
                   type="tel"
                   value={editSecondary}
                   onChange={(e) => setEditSecondary(e.target.value)}
-                  placeholder="For courier delivery"
+                  placeholder="Only if WhatsApp is busy"
                   className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl font-mono font-medium"
                 />
               </div>

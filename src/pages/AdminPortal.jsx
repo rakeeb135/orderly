@@ -461,15 +461,22 @@ export default function AdminPortal() {
   /* ---------------------------------------------------------------- */
   /*  Derived                                                          */
   /* ---------------------------------------------------------------- */
+  // Super admins are not customers — hide them from the admin panel entirely.
+  // They don't pay, they don't expire, and they shouldn't inflate MRR.
+  const customerSellers = useMemo(
+    () => sellers.filter((s) => !s.is_super_admin),
+    [sellers]
+  );
+
   const stats = useMemo(() => {
-    const total = sellers.length;
+    const total = customerSellers.length;
     let active = 0;
     let expiringSoon = 0;
     let expired = 0;
     let suspended = 0;
     let mrr = 0;
 
-    sellers.forEach((s) => {
+    customerSellers.forEach((s) => {
       const isSuspended = s.is_active === false;
       const days = daysRemaining(s);
       const fee = Number(s.monthly_fee) || DEFAULT_FEE;
@@ -488,21 +495,21 @@ export default function AdminPortal() {
     });
 
     return { total, active, expiringSoon, expired, suspended, mrr };
-  }, [sellers]);
+  }, [customerSellers]);
 
   const needsAttention = useMemo(() => {
-    return sellers
+    return customerSellers
       .filter((s) => {
         if (s.is_active === false) return false;
         const days = daysRemaining(s);
         return days < 3; // expired OR <= 2 days left
       })
       .sort((a, b) => daysRemaining(a) - daysRemaining(b));
-  }, [sellers]);
+  }, [customerSellers]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
-    return sellers.filter((s) => {
+    return customerSellers.filter((s) => {
       // Filter chip
       if (filter !== 'all') {
         const isSuspended = s.is_active === false;
@@ -521,7 +528,7 @@ export default function AdminPortal() {
         s.email?.toLowerCase().includes(q)
       );
     });
-  }, [sellers, filter, search]);
+  }, [customerSellers, filter, search]);
 
   const FILTERS = [
     { id: 'all', label: 'All', count: stats.total },

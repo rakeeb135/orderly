@@ -54,13 +54,21 @@ export default function SubscriptionBanner({ seller }) {
   if (daysRemaining <= -3) return null;
 
   // Determine state
+  // "Trial" wording only when the seller is actually on a trial —
+  // otherwise it's their subscription renewal window.
+  const isTrial = seller.subscription_status === 'trial';
+
   let tone, Icon, title, message;
 
   if (daysRemaining > 3) {
     tone = 'info';
     Icon = Clock;
-    title = `${daysRemaining} days left in your trial`;
-    message = 'Renew to keep your store live and orders flowing.';
+    title = isTrial
+      ? `${daysRemaining} days left in your free trial`
+      : `${daysRemaining} days left on your subscription`;
+    message = isTrial
+      ? 'Renew anytime to keep your store live and orders flowing.'
+      : 'Renew to keep your store live and orders flowing.';
   } else if (daysRemaining > 0) {
     tone = 'warning';
     Icon = Clock;

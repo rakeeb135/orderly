@@ -19,6 +19,7 @@ export default function Auth() {
   const [password, setPassword] = useState('');
   const [shopName, setShopName] = useState('');
   const [handle, setHandle] = useState('');
+  const [handleTouched, setHandleTouched] = useState(false);
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -120,6 +121,26 @@ export default function Auth() {
     }
   };
 
+  // Auto-generate a URL-safe slug from the shop name — but only until
+  // the seller manually edits the handle field. After that, we leave it alone.
+  const handleShopNameChange = (val) => {
+    setShopName(val);
+    if (!handleTouched) {
+      const slug = val
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 30);
+      setHandle(slug);
+    }
+  };
+
+  const handleHandleChange = (val) => {
+    setHandleTouched(true);
+    setHandle(val.toLowerCase().replace(/[^a-z0-9-_]/g, ''));
+  };
+
   return (
     <div className="min-h-screen bg-[#F4F6F4] text-[#111813] flex flex-col justify-between font-sans">
       <header className="w-full max-w-md mx-auto px-4 sm:px-6 py-5 flex justify-between items-center">
@@ -194,7 +215,7 @@ export default function Auth() {
                   type="text"
                   name="shop_name"
                   value={shopName}
-                  onChange={(e) => setShopName(e.target.value)}
+                  onChange={(e) => handleShopNameChange(e.target.value)}
                   placeholder="e.g. Colombo Apparel"
                   required
                   autoComplete="organization"
@@ -203,14 +224,17 @@ export default function Auth() {
               </div>
 
               <div>
-                <label className="block font-semibold mb-1">Store Handle (URL) *</label>
+                <label className="block font-semibold mb-1">Your Store Link *</label>
+                <p className="text-[10px] text-[#5A655D] mb-1.5 leading-relaxed">
+                  This is the link you'll share on WhatsApp and Instagram. We auto-filled it from your shop name — edit if you like.
+                </p>
                 <div className="flex items-center bg-[#F4F6F4] border border-[#E7EBE7] focus-within:border-[#006241] focus-within:bg-white rounded-xl px-3 py-2 text-xs transition">
                   <span className="text-[#5A655D] font-mono select-none">{window.location.host}/</span>
                   <input
                     type="text"
                     name="handle"
                     value={handle}
-                    onChange={(e) => setHandle(e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, ''))}
+                    onChange={(e) => handleHandleChange(e.target.value)}
                     placeholder="colombo-apparel"
                     required
                     autoComplete="off"
