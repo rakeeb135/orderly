@@ -4,7 +4,7 @@ import {
   Search, Printer, CheckCircle2, Clock, Truck, Package, MessageCircle,
   Loader2, Plus, Check, Layers, CheckSquare, Square, X, ChevronRight,
   ArrowRight, Trash2, RotateCcw, Landmark, PackageCheck, AlertCircle,
-  AlertTriangle,
+  AlertTriangle, RefreshCw,
 } from 'lucide-react';
 import {
   updateOrderStatus,
@@ -91,6 +91,29 @@ function SectionHeader({ tone, label, count }) {
   );
 }
 
+function ErrorCard({ message, onRetry, label = 'orders' }) {
+  return (
+    <div className="bg-white border border-rose-200 rounded-[24px] p-8 text-center space-y-3">
+      <div className="w-12 h-12 rounded-2xl bg-rose-50 flex items-center justify-center mx-auto">
+        <AlertCircle className="w-5 h-5 text-rose-600" />
+      </div>
+      <div className="space-y-1">
+        <p className="font-black text-sm text-[#18181B]">Couldn't load {label}</p>
+        <p className="text-[11px] text-[#71717A] max-w-xs mx-auto leading-relaxed">
+          {message || 'Please check your connection and try again.'}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="px-4 py-2 bg-[#18181B] hover:bg-stone-800 text-white rounded-xl text-xs font-bold transition active:scale-95 inline-flex items-center gap-1.5 cursor-pointer"
+      >
+        <RefreshCw className="w-3.5 h-3.5" /> Retry
+      </button>
+    </div>
+  );
+}
+
 function useDebounced(value, delay = 300) {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -110,6 +133,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
   const [counts, setCounts] = useState({ active: 0, received: 0, packed: 0, dispatched: 0, delivered: 0, canceled: 0 });
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState(null);
   const [activeTab, setActiveTab] = useState('active');
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedSearch = useDebounced(searchQuery, 300);
@@ -127,18 +151,18 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
 
   const [trustMap, setTrustMap] = useState({});
 
-  // Refs so realtime reads the latest tab/search without re-subscribing
   const tabRef = useRef(activeTab);
   const searchRef = useRef(debouncedSearch);
   useEffect(() => { tabRef.current = activeTab; }, [activeTab]);
   useEffect(() => { searchRef.current = debouncedSearch; }, [debouncedSearch]);
 
   /* ---------------------------------------------------------------- */
-  /*  Load first page whenever tab or search changes                   */
+  /*  Load first page                                                  */
   /* ---------------------------------------------------------------- */
   const loadFirstPage = useCallback(async () => {
     if (!seller?.id) return;
     setLoading(true);
+    setLoadError(null);
     try {
       const [page, countsData] = await Promise.all([
         fetchOrdersPage(seller.id, {
@@ -153,7 +177,10 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
       setTotalCount(page.total);
       setCounts(countsData);
     } catch (err) {
-      notify('Failed to load orders: ' + err.message, 'error');
+      console.error('Failed to load orders:', err);
+      setLoadError(err?.message || 'Network error');
+      setOrders([]);
+      setTotalCount(0);
     } finally {
       setLoading(false);
     }
@@ -163,7 +190,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
     loadFirstPage();
   }, [loadFirstPage]);
 
-  // Clear selection when filter changes
   useEffect(() => {
     setSelectedOrderIds([]);
   }, [activeTab, debouncedSearch]);
@@ -197,7 +223,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
   };
 
   /* ---------------------------------------------------------------- */
-  /*  Bulk trust lookup for visible phones                             */
+  /*  Bulk trust lookup                                                */
   /* ---------------------------------------------------------------- */
   useEffect(() => {
     if (!orders.length) {
@@ -214,7 +240,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
   }, [orders]);
 
   /* ---------------------------------------------------------------- */
-  /*  Realtime subscription (subscribes once per seller)               */
+  /*  Realtime                                                         */
   /* ---------------------------------------------------------------- */
   useEffect(() => {
     if (!seller?.id) return;
@@ -232,7 +258,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
           const currentTab = tabRef.current;
           const currentSearch = (searchRef.current || '').toLowerCase();
 
-          // Always refresh counts
           getOrderCounts(seller.id).then((c) => {
             if (isMounted) setCounts(c);
           }).catch(() => {});
@@ -296,42 +321,76 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
     else notify('POS Modal trigger unavailable', 'error');
   };
 
+  /* Optimistic: flip the order status instantly, rollback on failure. */
   const handleInlineAction = async (orderId, nextStatus, e) => {
     if (e) e.stopPropagation();
+
+    const snapshot = orders.find((o) => o.id === orderId);
+    if (!snapshot) return;
+
+    setOrders((prev) =>
+      prev.map((o) => (o.id === orderId ? { ...o, status: nextStatus } : o))
+    );
     setActionLoadingId(orderId);
+
     try {
       const updated = await updateOrderStatus(orderId, nextStatus);
-      setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, ...updated } : o)));
+      setOrders((prev) =>
+        prev.map((o) => (o.id === orderId ? { ...o, ...updated } : o))
+      );
       notify(`Order marked as ${nextStatus}!`);
     } catch (err) {
+      setOrders((prev) =>
+        prev.map((o) => (o.id === orderId ? snapshot : o))
+      );
       notify('Failed to update: ' + err.message, 'error');
     } finally {
       setActionLoadingId(null);
     }
   };
 
+  /* Optimistic bulk pack: flip eligible orders instantly, rollback on failure. */
   const handleBulkPack = async () => {
-    const packableCount = orders.filter(
+    const eligibleSelected = orders.filter(
       (o) => selectedOrderIds.includes(o.id) && isEligibleForPack(o)
-    ).length;
+    );
 
-    if (!packableCount) {
+    if (!eligibleSelected.length) {
       notify('No eligible orders in selection — verify buyer or confirm payment first.', 'error');
       return;
     }
 
+    const eligibleIds = eligibleSelected.map((o) => o.id);
+    const snapshots = eligibleSelected.map((o) => ({ id: o.id, status: o.status }));
+
+    // Optimistic
+    setOrders((prev) =>
+      prev.map((o) =>
+        eligibleIds.includes(o.id) ? { ...o, status: 'packed' } : o
+      )
+    );
     setBulkPacking(true);
+
     try {
       const { updatedOrders, skipped } = await bulkUpdateOrderStatus(selectedOrderIds, 'packed');
-      setOrders((prev) => prev.map((o) => {
-        const upd = updatedOrders.find((u) => u.id === o.id);
-        return upd ? { ...o, ...upd } : o;
-      }));
+      setOrders((prev) =>
+        prev.map((o) => {
+          const upd = updatedOrders.find((u) => u.id === o.id);
+          return upd ? { ...o, ...upd } : o;
+        })
+      );
       const updatedCount = updatedOrders.length;
       if (skipped > 0) notify(`${updatedCount} packed, ${skipped} skipped (not verified/paid).`);
       else notify(`${updatedCount} order${updatedCount === 1 ? '' : 's'} packed!`);
       cancelSelectionMode();
     } catch (err) {
+      // Rollback
+      setOrders((prev) =>
+        prev.map((o) => {
+          const snap = snapshots.find((s) => s.id === o.id);
+          return snap ? { ...o, status: snap.status } : o;
+        })
+      );
       notify('Bulk pack failed: ' + err.message, 'error');
     } finally {
       setBulkPacking(false);
@@ -340,17 +399,41 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
 
   const handleConfirmDispatch = async () => {
     if (!dispatchOrderTarget) return;
-    setActionLoadingId(dispatchOrderTarget.id);
+    const target = dispatchOrderTarget;
+    const snapshot = orders.find((o) => o.id === target.id);
+    if (!snapshot) return;
+
+    // Optimistic: mark dispatched + attach courier info locally
+    setOrders((prev) =>
+      prev.map((o) =>
+        o.id === target.id
+          ? {
+              ...o,
+              status: 'dispatched',
+              courier_name: selectedCourier,
+              tracking_number: trackingNumber.trim() || o.tracking_number,
+              dispatched_at: new Date().toISOString(),
+            }
+          : o
+      )
+    );
+    setActionLoadingId(target.id);
+
     try {
-      const updated = await updateOrderStatus(dispatchOrderTarget.id, 'dispatched', {
+      const updated = await updateOrderStatus(target.id, 'dispatched', {
         courierName: selectedCourier,
         trackingNumber: trackingNumber.trim(),
       });
-      setOrders((prev) => prev.map((o) => (o.id === dispatchOrderTarget.id ? { ...o, ...updated } : o)));
+      setOrders((prev) =>
+        prev.map((o) => (o.id === target.id ? { ...o, ...updated } : o))
+      );
       notify('Order dispatched with tracking details!');
       setDispatchOrderTarget(null);
       setTrackingNumber('');
     } catch (err) {
+      setOrders((prev) =>
+        prev.map((o) => (o.id === target.id ? snapshot : o))
+      );
       notify('Failed to dispatch: ' + err.message, 'error');
     } finally {
       setActionLoadingId(null);
@@ -361,6 +444,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
     if (!selectedOrderIds.length) return;
     if (!window.confirm(`Permanently delete ${selectedOrderIds.length} selected order(s)? Stock items will be safely returned to inventory.`)) return;
 
+    const snapshots = orders.filter((o) => selectedOrderIds.includes(o.id));
     setDeleting(true);
     try {
       await deleteOrdersBatch(selectedOrderIds);
@@ -369,6 +453,13 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
       notify(`Successfully deleted ${selectedOrderIds.length} order(s).`);
       cancelSelectionMode();
     } catch (err) {
+      setOrders((prev) => {
+        const map = new Map(prev.map((o) => [o.id, o]));
+        snapshots.forEach((s) => map.set(s.id, s));
+        return Array.from(map.values()).sort(
+          (a, b) => new Date(b.created_at) - new Date(a.created_at)
+        );
+      });
       notify('Delete failed: ' + err.message, 'error');
     } finally {
       setDeleting(false);
@@ -724,6 +815,8 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
         <div className="bg-white border border-[#E4E4E7] rounded-[24px] p-16 flex justify-center items-center">
           <Loader2 className="w-6 h-6 text-[#006241] animate-spin" />
         </div>
+      ) : loadError ? (
+        <ErrorCard message={loadError} onRetry={loadFirstPage} label="orders" />
       ) : orders.length === 0 ? (
         <div className="bg-white border border-[#E4E4E7] rounded-[24px] p-14 text-center space-y-3">
           <div className="w-12 h-12 rounded-2xl bg-[#F4F4F5] flex items-center justify-center mx-auto">
@@ -756,7 +849,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
       )}
 
       {/* Load more */}
-      {!loading && hasMore && (
+      {!loading && !loadError && hasMore && (
         <div className="flex justify-center pt-1">
           <button
             type="button"

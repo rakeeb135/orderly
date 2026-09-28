@@ -103,7 +103,30 @@ export default function OrderDetail({ seller }) {
   }, [id]);
 
   const handleStatusAdvance = async (nextStatus, extraData = {}) => {
+    // Snapshot for rollback
+    const snapshot = { ...order };
+
+    // Optimistic update — reflects instantly
+    setOrder((prev) => ({
+      ...prev,
+      status: nextStatus,
+      ...(nextStatus === 'dispatched' && extraData.courierName
+        ? {
+            courier_name: extraData.courierName,
+            tracking_number: extraData.trackingNumber || prev.tracking_number,
+            dispatched_at: new Date().toISOString(),
+          }
+        : {}),
+      ...(nextStatus === 'delivered'
+        ? {
+            delivered_at: new Date().toISOString(),
+            payment_status: 'Paid',
+            cod_balance: 0,
+          }
+        : {}),
+    }));
     setUpdating(true);
+
     try {
       const updated = await updateOrderStatus(order.id, nextStatus, extraData);
       setOrder((prev) => ({ ...prev, ...updated }));
@@ -112,6 +135,7 @@ export default function OrderDetail({ seller }) {
         setShowDispatchModal(false);
       }
     } catch (err) {
+      setOrder(snapshot);
       notify('Failed to update status: ' + err.message, 'error');
     } finally {
       setUpdating(false);

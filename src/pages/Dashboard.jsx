@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   TrendingUp, ShoppingBag, Clock, ArrowRight, Package, Truck,
   CheckCircle2, AlertCircle, Plus, Loader2, PackageCheck, Layers,
-  AlertTriangle,
+  AlertTriangle, RefreshCw,
 } from 'lucide-react';
 import {
   getDashboardSummary,
@@ -61,6 +61,7 @@ export default function Dashboard({ seller }) {
   const [recentOrders, setRecentOrders] = useState([]);
   const [timeframe, setTimeframe] = useState('today');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [trustMap, setTrustMap] = useState({});
 
   /* ---------------------------------------------------------------- */
@@ -76,8 +77,10 @@ export default function Dashboard({ seller }) {
       ]);
       setSummary(sum || EMPTY_SUMMARY);
       setRecentOrders(recent || []);
+      setLoadError(null);
     } catch (err) {
       console.error('Dashboard load failed:', err);
+      setLoadError(err?.message || 'Network error');
     } finally {
       if (showSpinner) setLoading(false);
     }
@@ -149,6 +152,29 @@ export default function Dashboard({ seller }) {
     return (
       <div className="flex items-center justify-center p-12">
         <Loader2 className="w-8 h-8 text-[#006241] animate-spin" />
+      </div>
+    );
+  }
+
+  if (loadError && recentOrders.length === 0 && summary.order_count === 0) {
+    return (
+      <div className="bg-white border border-rose-200 rounded-[24px] p-8 text-center space-y-3">
+        <div className="w-12 h-12 rounded-2xl bg-rose-50 flex items-center justify-center mx-auto">
+          <AlertCircle className="w-5 h-5 text-rose-600" />
+        </div>
+        <div className="space-y-1">
+          <p className="font-black text-sm text-[#18181B]">Couldn't load dashboard</p>
+          <p className="text-[11px] text-[#71717A] max-w-xs mx-auto leading-relaxed">
+            {loadError || 'Please check your connection and try again.'}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => loadData(true)}
+          className="px-4 py-2 bg-[#18181B] hover:bg-stone-800 text-white rounded-xl text-xs font-bold transition active:scale-95 inline-flex items-center gap-1.5 cursor-pointer"
+        >
+          <RefreshCw className="w-3.5 h-3.5" /> Retry
+        </button>
       </div>
     );
   }
