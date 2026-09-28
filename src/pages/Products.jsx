@@ -20,6 +20,7 @@ import { createProduct, updateProduct, updateProductStock, deleteProduct, format
 import { uploadStoreAsset } from '../services/storageService';
 import { supabase } from '../supabase';
 import { notify } from '../components/Toast';
+import { confirm } from '../components/ConfirmModal';
 import ImageCropper from '../components/ImageCropper';
 
 const PRESET_COLOR_NAMES = ['Black', 'White', 'Navy', 'Beige', 'Olive', 'Brown', 'Maroon', 'Grey'];
@@ -1018,7 +1019,15 @@ export default function Products({ seller, products = [], setProducts }) {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this product permanently?')) return;
+    const target = products.find((p) => p.id === id);
+    const ok = await confirm({
+      title: `Delete "${target?.title || 'this product'}"?`,
+      message: 'This product will be permanently removed from your catalog.',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Keep',
+      tone: 'danger',
+    });
+    if (!ok) return;
     try {
       await deleteProduct(id);
       if (typeof setProducts === 'function') {

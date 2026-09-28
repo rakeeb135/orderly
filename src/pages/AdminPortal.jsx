@@ -25,6 +25,7 @@ import {
   formatLKR
 } from '../services/dbService';
 import { notify } from '../components/Toast';
+import { confirm } from '../components/ConfirmModal';
 
 export default function AdminPortal() {
   const [sellers, setSellers] = useState([]);
@@ -151,8 +152,17 @@ export default function AdminPortal() {
   };
 
   const handleToggleActive = async (shop) => {
-    const action = shop.is_active !== false ? 'Suspend' : 'Reactivate';
-    if (!window.confirm(`${action} storefront for "${shop.shop_name}"?`)) return;
+    const isSuspending = shop.is_active !== false;
+    const ok = await confirm({
+      title: isSuspending ? `Suspend "${shop.shop_name}"?` : `Reactivate "${shop.shop_name}"?`,
+      message: isSuspending
+        ? 'The storefront will go offline. Orders already placed will not be affected.'
+        : 'The storefront will be brought back online immediately.',
+      confirmLabel: isSuspending ? 'Suspend' : 'Reactivate',
+      cancelLabel: 'Cancel',
+      tone: isSuspending ? 'warning' : 'default',
+    });
+    if (!ok) return;
 
     setUpdatingId(shop.id);
     try {
@@ -172,10 +182,14 @@ export default function AdminPortal() {
       return;
     }
 
-    const confirmPrompt = window.confirm(
-      `PERMANENT DELETION: Are you sure you want to completely delete "${shop.shop_name}" (${shop.handle})? All products and orders for this store will be permanently wiped.`
-    );
-    if (!confirmPrompt) return;
+    const ok = await confirm({
+      title: `Permanently delete "${shop.shop_name}"?`,
+      message: `Handle: /${shop.handle}\n\nAll products, orders, and customer data for this store will be wiped.\n\nThis CANNOT be undone.`,
+      confirmLabel: 'Delete Forever',
+      cancelLabel: 'Cancel',
+      tone: 'danger',
+    });
+    if (!ok) return;
 
     setUpdatingId(shop.id);
     try {

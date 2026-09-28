@@ -18,6 +18,7 @@ import {
 import { supabase } from '../supabase';
 import PrintManifestModal from '../components/PrintManifestModal';
 import { notify } from '../components/Toast';
+import { confirm } from '../components/ConfirmModal';
 import { normalizeSLPhone } from '../utils/phone';
 
 const PAGE_SIZE = 50;
@@ -442,7 +443,15 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
 
   const handleBatchDelete = async () => {
     if (!selectedOrderIds.length) return;
-    if (!window.confirm(`Permanently delete ${selectedOrderIds.length} selected order(s)? Stock items will be safely returned to inventory.`)) return;
+
+    const ok = await confirm({
+      title: `Delete ${selectedOrderIds.length} order${selectedOrderIds.length === 1 ? '' : 's'}?`,
+      message: 'Stock items will be returned to your inventory.\nThis action cannot be undone.',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Keep',
+      tone: 'danger',
+    });
+    if (!ok) return;
 
     const snapshots = orders.filter((o) => selectedOrderIds.includes(o.id));
     setDeleting(true);

@@ -14,6 +14,7 @@ import {
 import { fetchCustomers, updateCustomer, deleteCustomerSafe } from '../services/dbService';
 import { supabase } from '../supabase';
 import { notify } from '../components/Toast';
+import { confirm } from '../components/ConfirmModal';
 
 const SL_DISTRICTS = [
   'Colombo', 'Gampaha', 'Kalutara', 
@@ -140,11 +141,17 @@ export default function Customers({ seller }) {
   };
 
   const handleDeleteCustomer = async (cust) => {
-    const confirmMsg = cust.total_orders > 0 
-      ? `Remove ${cust.name}? Their past orders will remain in records, but their profile will be removed.`
-      : `Delete customer ${cust.name}?`;
-
-    if (!window.confirm(confirmMsg)) return;
+    const ok = await confirm({
+      title: `Remove ${cust.name || 'this customer'}?`,
+      message:
+        (cust.total_orders || 0) > 0
+          ? 'Their past orders will remain in your records, but the profile will be removed.'
+          : 'This customer record will be permanently deleted.',
+      confirmLabel: 'Remove',
+      cancelLabel: 'Keep',
+      tone: 'danger',
+    });
+    if (!ok) return;
 
     try {
       await deleteCustomerSafe(cust.id);
