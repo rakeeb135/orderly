@@ -822,7 +822,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
 
       {/* Product modal */}
       {selectedProductView && (
-        <div className="fixed inset-0 bg-[#111813]/70 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
+        <div className="fixed inset-x-0 top-0 h-[100dvh] bg-[#111813]/70 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
           <div className="bg-white w-full sm:max-w-md rounded-t-[32px] sm:rounded-[32px] p-6 shadow-2xl space-y-4 max-h-[92dvh] overflow-y-auto text-[#111813]">
             <div className="flex justify-between items-center border-b border-[#E7EBE7] pb-2">
               <span className="text-xs font-bold text-[#5A655D] uppercase tracking-wider">
@@ -1075,7 +1075,7 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
       {/* Checkout drawer */}
       {showCheckout && (
         <div className="fixed inset-0 bg-[#111813]/70 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
-          <div className="bg-white w-full sm:max-w-md rounded-t-[32px] sm:rounded-[32px] p-6 shadow-2xl space-y-4 max-h-[92dvh] overflow-y-auto text-[#111813]">
+          <div className="bg-white w-full sm:max-w-md rounded-t-[32px] sm:rounded-[32px] p-6 shadow-2xl space-y-4 max-h-[92dvh] overflow-y-auto scroll-pb-40 text-[#111813]">
             <div className="flex justify-between items-center border-b border-[#E7EBE7] pb-3">
               <h3 className="font-black text-sm">
                 {placedOrder ? 'Order Confirmed' : 'Delivery & Checkout'}
