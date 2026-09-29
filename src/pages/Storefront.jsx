@@ -178,12 +178,13 @@ export default function Storefront() {
     setChosenSize(availableSizes.length === 1 ? availableSizes[0] : null);
     setChosenColor(availableColors.length === 1 ? availableColors[0] : null);
     if (product?.id && product.track_stock) {
-      supabase.from('products_public_view').select('stock_count, track_stock').eq('id', product.id).single()
+      supabase.rpc('get_public_stock', { p_product_ids: [product.id] })
         .then(({ data }) => {
-          if (!data) return;
-          if (data.stock_count !== product.stock_count || data.track_stock !== product.track_stock) {
-            setSelectedProductView((prev) => prev && prev.id === product.id ? { ...prev, stock_count: data.stock_count, track_stock: data.track_stock } : prev);
-            setProducts((prev) => prev.map((p) => p.id === product.id ? { ...p, stock_count: data.stock_count, track_stock: data.track_stock } : p));
+          const fresh = Array.isArray(data) ? data[0] : null;
+          if (!fresh) return;
+          if (fresh.stock_count !== product.stock_count || fresh.track_stock !== product.track_stock) {
+            setSelectedProductView((prev) => prev && prev.id === product.id ? { ...prev, stock_count: fresh.stock_count, track_stock: fresh.track_stock } : prev);
+            setProducts((prev) => prev.map((p) => p.id === product.id ? { ...p, stock_count: fresh.stock_count, track_stock: fresh.track_stock } : p));
           }
         }).catch(() => {});
     }
@@ -269,9 +270,9 @@ export default function Storefront() {
     setShowCheckout(true);
     const cartProductIds = cart.map((i) => i.id).filter(Boolean);
     if (cartProductIds.length) {
-      supabase.from('products_public_view').select('id, stock_count, track_stock').in('id', cartProductIds)
+      supabase.rpc('get_public_stock', { p_product_ids: cartProductIds })
         .then(({ data }) => {
-          if (!data?.length) return;
+          if (!Array.isArray(data) || !data.length) return;
           setCart((prev) => prev.map((item) => {
             const fresh = data.find((d) => d.id === item.id);
             if (!fresh) return item;
@@ -370,7 +371,6 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
     : '';
   const slipWhatsAppLink = cleanWaNumber ? `https://wa.me/${cleanWaNumber}?text=${encodeURIComponent(slipMessage)}` : '#';
 
-  // Tracking link with the buyer's verification token
   const trackingUrl = placedOrder
     ? `/order/${placedOrder.id}?t=${placedOrder.verification_token}`
     : '#';

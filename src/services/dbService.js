@@ -1,7 +1,6 @@
 import { supabase } from '../supabase';
 import { normalizeSLPhone, isValidSLPhone } from '../utils/phone';
 
-// Currency formatter for Sri Lankan Rupees
 export const formatLKR = (amount) => {
   const val = Number(amount) || 0;
   return `Rs. ${val.toLocaleString('en-LK')}`;
@@ -87,13 +86,12 @@ export async function createSeller({ authUserId, shopName, handle, email, whatsa
   return data;
 }
 
-// BUYER-SAFE — reads from public view (hides internal seller columns)
+// BUYER-SAFE — reads via SECURITY DEFINER RPC (returns only public columns)
 export async function fetchSellerByHandle(handle) {
-  const { data, error } = await supabase
-    .from('sellers_public_view')
-    .select('*')
-    .eq('handle', handle.trim().toLowerCase())
-    .maybeSingle();
+  if (!handle) return null;
+  const { data, error } = await supabase.rpc('get_public_seller', {
+    p_handle: handle.trim().toLowerCase(),
+  });
   if (error) return null;
   return data;
 }
@@ -117,15 +115,14 @@ export async function fetchProducts(sellerId) {
   return data || [];
 }
 
-// BUYER-SAFE — reads from public view (hides cost_price)
+// BUYER-SAFE — reads via SECURITY DEFINER RPC (hides cost_price)
 export async function fetchProductsPublic(sellerId) {
-  const { data, error } = await supabase
-    .from('products_public_view')
-    .select('*')
-    .eq('seller_id', sellerId)
-    .order('created_at', { ascending: false });
+  if (!sellerId) return [];
+  const { data, error } = await supabase.rpc('get_public_products', {
+    p_seller_id: sellerId,
+  });
   if (error) throw error;
-  return data || [];
+  return Array.isArray(data) ? data : [];
 }
 
 export async function createProduct({
@@ -195,12 +192,13 @@ export async function deleteProduct(productId) {
   if (error) throw error;
 }
 
-// BUYER-SAFE — reads from public view
+// BUYER-SAFE — reads via SECURITY DEFINER RPC
 export async function fetchProductBySlug(sellerId, slug) {
   if (!sellerId || !slug) return null;
-  const { data, error } = await supabase
-    .from('products_public_view').select('*')
-    .eq('seller_id', sellerId).eq('slug', slug).maybeSingle();
+  const { data, error } = await supabase.rpc('get_public_product_by_slug', {
+    p_seller_id: sellerId,
+    p_slug: slug,
+  });
   if (error) return null;
   return data;
 }
@@ -289,7 +287,6 @@ export async function fetchOrders(sellerId) {
   return data || [];
 }
 
-// Seller-side fetch (authenticated, full join)
 export async function fetchOrderByUuid(orderId) {
   const { data, error } = await supabase
     .from('orders').select('*, sellers(*), customers(*)')
@@ -310,8 +307,6 @@ export async function fetchBuyerOrder(orderId, token) {
   return { ...data.order, sellers: data.seller };
 }
 
-// Seller-side createOrder (for POS / manual orders). Seller authenticated.
-// Buyer-side orders MUST use createBuyerOrder below.
 export async function createOrder({
   sellerId, customerName, customerPhone, secondaryPhone = '',
   deliveryAddress, city, district, items, deliveryFee = 0,
@@ -407,7 +402,7 @@ export async function createOrder({
   return order;
 }
 
-// BUYER-SAFE — server validates everything (prices, stock, totals)
+// BUYER-SAFE — server validates everything
 export async function createBuyerOrder({
   sellerId, customerName, customerPhone, secondaryPhone = '',
   deliveryAddress, city, district, items, paymentMethod = 'COD', source = 'storefront'
@@ -455,7 +450,6 @@ export async function updateOrderStatus(orderId, nextStatus, { courierName = nul
   return data;
 }
 
-// BUYER-SAFE — token required
 export async function confirmOrderAsBuyer(orderId, token) {
   const { data, error } = await supabase.rpc('buyer_confirm_order', {
     p_order_id: orderId, p_token: token,
