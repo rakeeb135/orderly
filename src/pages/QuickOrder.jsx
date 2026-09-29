@@ -16,7 +16,7 @@ import {
 import {
   fetchSellerByHandle,
   fetchProductBySlug,
-  createOrder,
+  createBuyerOrder,
   triggerPushNotification,
   formatLKR,
 } from '../services/dbService';
@@ -293,13 +293,12 @@ export default function QuickOrder() {
     try {
       const orderItems = selections.map((s) => ({
         id: s.id,
-        title: s.title,
-        price: Number(s.price),
         quantity: Number(s.quantity),
-        free_delivery: Boolean(s.free_delivery),
+        size: s.size || null,
+        color: s.color || null,
       }));
 
-      const order = await createOrder({
+      const order = await createBuyerOrder({
         sellerId: seller.id,
         customerName: name.trim(),
         customerPhone: phone.trim(),
@@ -308,7 +307,6 @@ export default function QuickOrder() {
         city: city.trim(),
         district: district.trim(),
         items: orderItems,
-        deliveryFee: calculatedDeliveryFee,
         paymentMethod,
         source: 'quick_order',
       });
@@ -485,7 +483,7 @@ export default function QuickOrder() {
 
             <div className="space-y-2 pt-1">
               <Link
-                to={`/order/${placedOrder.id}`}
+                to={`/order/${placedOrder.id}?t=${placedOrder.verification_token}`}
                 className="block w-full py-3 bg-[#006241] hover:bg-[#004F34] text-white rounded-2xl text-xs font-bold active:scale-95 transition shadow-xs"
               >
                 Track Order Status

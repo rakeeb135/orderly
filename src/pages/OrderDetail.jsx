@@ -249,7 +249,7 @@ export default function OrderDetail({ seller }) {
     return targetIndex <= currentIndex;
   };
 
-  const trackingUrl = `${window.location.origin}/order/${order.id}`;
+  const trackingUrl = `${window.location.origin}/order/${order.id}?t=${order.verification_token}`;
   const verificationMsg = `Hi ${order.customer_name}! Thank you for ordering from ${seller?.shop_name || 'our store'}.\n\nPlease tap the link below to confirm your Cash on Delivery order #${order.order_code || order.id.slice(0, 4)} and verify your delivery address:\n${trackingUrl}`;
   const dispatchMsg = `Hi ${order.customer_name}! Great news — your order #${order.order_code || order.id.slice(0, 4)} has been dispatched via ${order.courier_name || 'our courier'}.\n\nTracking Number: ${order.tracking_number || 'N/A'}\nTotal Amount: ${formatLKR(order.total_amount)}\n\nTrack your delivery live here:\n${trackingUrl}`;
 

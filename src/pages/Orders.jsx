@@ -532,7 +532,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
     const extraItems = items.length - visibleItems.length;
     const totalQty = items.reduce((sum, i) => sum + (i.quantity || 1), 0);
 
-    const trackingUrl = `${window.location.origin}/order/${ord.id}`;
+    const trackingUrl = `${window.location.origin}/order/${ord.id}?t=${ord.verification_token}`;
     const verifyMsg = `Hi ${ord.customer_name}! Please tap to confirm your order #${ord.order_code || ord.id.slice(0, 4)} from ${seller?.shop_name}: ${trackingUrl}`;
 
     const cleanPhoneNorm = normalizeSLPhone(ord.customer_phone || '');

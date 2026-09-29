@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
 import {
   Store,
   CheckCircle2,
@@ -12,13 +12,12 @@ import {
   XCircle,
 } from 'lucide-react';
 import {
-  fetchOrderByUuid,
+  fetchBuyerOrder,
   confirmOrderAsBuyer,
   updateBuyerOrderAddress,
   cancelOrderAsBuyer,
   formatLKR,
 } from '../services/dbService';
-import { supabase } from '../supabase';
 
 // Official 25 Administrative Districts of Sri Lanka
 const SL_DISTRICTS = [
@@ -35,6 +34,9 @@ const SL_DISTRICTS = [
 
 export default function OrderTracker() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  const token = searchParams.get('t');
+
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState(false);
@@ -58,59 +60,59 @@ export default function OrderTracker() {
   const [successMsg, setSuccessMsg] = useState('');
 
   /* ---------------------------------------------------------------- */
-  /*  Load order                                                       */
+  /* Load order via token-gated RPC                                    */
   /* ---------------------------------------------------------------- */
   useEffect(() => {
-    async function load() {
+    if (!id || !token) {
+      setLoading(false);
+      return;
+    }
+    let mounted = true;
+    (async () => {
       try {
         setLoading(true);
-        const data = await fetchOrderByUuid(id);
-        setOrder(data);
+        const data = await fetchBuyerOrder(id, token);
+        if (mounted) setOrder(data);
       } catch (err) {
         console.error(err);
+        if (mounted) setOrder(null);
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
-    }
-    load();
-  }, [id]);
+    })();
+    return () => { mounted = false; };
+  }, [id, token]);
 
   /* ---------------------------------------------------------------- */
-  /*  Realtime — reflect seller actions live                           */
+  /* Polling refresh — every 20s when tab is visible                   */
+  /* (replaces realtime, since anonymous users won't receive           */
+  /*  postgres_changes events once RLS is tightened)                   */
   /* ---------------------------------------------------------------- */
   useEffect(() => {
-    if (!id) return;
-    let isMounted = true;
+    if (!id || !token) return;
+    let cancelled = false;
 
-    const channelName = `tracker-rt-${id}-${Date.now()}-${Math.random()
-      .toString(36)
-      .slice(2, 8)}`;
+    const poll = async () => {
+      if (document.hidden) return;
+      try {
+        const data = await fetchBuyerOrder(id, token);
+        if (!cancelled) setOrder(data);
+      } catch { /* silent — order may have been deleted */ }
+    };
 
-    const channel = supabase
-      .channel(channelName)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'orders',
-          filter: `id=eq.${id}`,
-        },
-        (payload) => {
-          if (!isMounted || !payload?.new) return;
-          setOrder((prev) => (prev ? { ...prev, ...payload.new } : prev));
-        }
-      )
-      .subscribe();
+    const interval = setInterval(poll, 20000);
+    const onVisible = () => { if (!document.hidden) poll(); };
+    document.addEventListener('visibilitychange', onVisible);
 
     return () => {
-      isMounted = false;
-      supabase.removeChannel(channel);
+      cancelled = true;
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [id]);
+  }, [id, token]);
 
   /* ---------------------------------------------------------------- */
-  /*  Auto-dismiss success banner                                      */
+  /* Auto-dismiss success banner                                       */
   /* ---------------------------------------------------------------- */
   useEffect(() => {
     if (!successMsg) return;
@@ -119,12 +121,12 @@ export default function OrderTracker() {
   }, [successMsg]);
 
   /* ---------------------------------------------------------------- */
-  /*  Buyer confirm                                                    */
+  /* Buyer confirm                                                     */
   /* ---------------------------------------------------------------- */
   const handleBuyerConfirm = async () => {
     setConfirming(true);
     try {
-      const updated = await confirmOrderAsBuyer(order.id);
+      const updated = await confirmOrderAsBuyer(order.id, token);
       setOrder((prev) => ({ ...prev, ...updated }));
       setSuccessMsg('Order confirmed! The seller is now preparing your delivery.');
     } catch (err) {
@@ -135,7 +137,7 @@ export default function OrderTracker() {
   };
 
   /* ---------------------------------------------------------------- */
-  /*  Edit delivery details                                            */
+  /* Edit delivery details                                             */
   /* ---------------------------------------------------------------- */
   const openEditModal = () => {
     setEditName(order.customer_name || '');
@@ -154,26 +156,14 @@ export default function OrderTracker() {
     e.preventDefault();
     setEditError('');
 
-    if (!editName.trim()) {
-      setEditError('Please enter a name.');
-      return;
-    }
-    if (!editPhone.trim()) {
-      setEditError('Please enter a phone number.');
-      return;
-    }
-    if (!editAddress.trim()) {
-      setEditError('Please enter a delivery address.');
-      return;
-    }
-    if (!editCity.trim()) {
-      setEditError('Please enter a city / town.');
-      return;
-    }
+    if (!editName.trim()) { setEditError('Please enter a name.'); return; }
+    if (!editPhone.trim()) { setEditError('Please enter a phone number.'); return; }
+    if (!editAddress.trim()) { setEditError('Please enter a delivery address.'); return; }
+    if (!editCity.trim()) { setEditError('Please enter a city / town.'); return; }
 
     setSavingEdit(true);
     try {
-      const updated = await updateBuyerOrderAddress(order.id, {
+      const updated = await updateBuyerOrderAddress(order.id, token, {
         customerName: editName,
         customerPhone: editPhone,
         secondaryPhone: editSecondary,
@@ -192,12 +182,12 @@ export default function OrderTracker() {
   };
 
   /* ---------------------------------------------------------------- */
-  /*  Cancel order                                                     */
+  /* Cancel order                                                      */
   /* ---------------------------------------------------------------- */
   const handleCancelOrder = async () => {
     setCanceling(true);
     try {
-      const updated = await cancelOrderAsBuyer(order.id);
+      const updated = await cancelOrderAsBuyer(order.id, token);
       setOrder((prev) => ({ ...prev, ...updated }));
       setShowCancelModal(false);
       setSuccessMsg('Order canceled. Stock has been returned to the seller.');
@@ -210,7 +200,7 @@ export default function OrderTracker() {
   };
 
   /* ---------------------------------------------------------------- */
-  /*  Loading / not found                                              */
+  /* Loading state                                                     */
   /* ---------------------------------------------------------------- */
   if (loading) {
     return (
@@ -220,14 +210,51 @@ export default function OrderTracker() {
     );
   }
 
-  if (!order) {
+  /* ---------------------------------------------------------------- */
+  /* Missing token — old link                                           */
+  /* ---------------------------------------------------------------- */
+  if (!token) {
     return (
-      <div className="min-h-screen bg-[#F4F6F4] flex items-center justify-center p-6 text-center text-xs text-[#5A655D]">
-        Order details not found. Please check your tracking link.
+      <div className="min-h-screen bg-[#F4F6F4] flex items-center justify-center p-6">
+        <div className="max-w-sm w-full bg-white border border-[#E7EBE7] rounded-[28px] p-8 text-center space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto">
+            <AlertCircle className="w-5 h-5 text-amber-600" />
+          </div>
+          <div className="space-y-1">
+            <h1 className="font-black text-sm text-[#111813]">Tracking link incomplete</h1>
+            <p className="text-[11px] text-[#5A655D] leading-relaxed">
+              This link is missing a required code. Please open the original tracking link the seller sent you, or ask the seller for a fresh one.
+            </p>
+          </div>
+        </div>
       </div>
     );
   }
 
+  /* ---------------------------------------------------------------- */
+  /* Order not found (bad token or deleted order)                       */
+  /* ---------------------------------------------------------------- */
+  if (!order) {
+    return (
+      <div className="min-h-screen bg-[#F4F6F4] flex items-center justify-center p-6">
+        <div className="max-w-sm w-full bg-white border border-[#E7EBE7] rounded-[28px] p-8 text-center space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-rose-50 flex items-center justify-center mx-auto">
+            <XCircle className="w-5 h-5 text-rose-600" />
+          </div>
+          <div className="space-y-1">
+            <h1 className="font-black text-sm text-[#111813]">Order not found</h1>
+            <p className="text-[11px] text-[#5A655D] leading-relaxed">
+              This tracking link is invalid or has expired. Please check that you copied it fully, or ask the seller for a fresh link.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Derived values                                                    */
+  /* ---------------------------------------------------------------- */
   const seller = order.sellers;
   const items = Array.isArray(order.items) ? order.items : [];
   const cleanSellerWa = seller?.whatsapp_number?.replace(/[^0-9]/g, '').replace(/^0/, '94');
@@ -350,7 +377,7 @@ export default function OrderTracker() {
             <button
               onClick={handleBuyerConfirm}
               disabled={confirming}
-              className="w-full py-3.5 bg-[#006241] hover:bg-[#004F34] text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-2 shadow-xs active:scale-95 transition disabled:opacity-50"
+              className="w-full py-3.5 bg-[#006241] hover:bg-[#004F34] text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-2 shadow-xs active:scale-95 transition disabled:opacity-50 cursor-pointer"
             >
               {confirming ? <Loader2 className="w-4 h-4 animate-spin" /> : <><CheckCircle2 className="w-4 h-4" /> Confirm My Order</>}
             </button>
@@ -367,14 +394,14 @@ export default function OrderTracker() {
               <button
                 type="button"
                 onClick={openEditModal}
-                className="py-2.5 bg-[#F4F6F4] hover:bg-stone-200 border border-[#E7EBE7] rounded-xl text-xs font-bold text-[#111813] flex items-center justify-center gap-1.5 active:scale-95 transition"
+                className="py-2.5 bg-[#F4F6F4] hover:bg-stone-200 border border-[#E7EBE7] rounded-xl text-xs font-bold text-[#111813] flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
               >
                 <Pencil className="w-3.5 h-3.5" /> Edit Details
               </button>
               <button
                 type="button"
                 onClick={() => setShowCancelModal(true)}
-                className="py-2.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl text-xs font-bold text-rose-700 flex items-center justify-center gap-1.5 active:scale-95 transition"
+                className="py-2.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl text-xs font-bold text-rose-700 flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
               >
                 <XCircle className="w-3.5 h-3.5" /> Cancel Order
               </button>
@@ -450,14 +477,14 @@ export default function OrderTracker() {
       </main>
 
       {/* ============================================================ */}
-      {/*  EDIT DELIVERY DETAILS MODAL                                  */}
+      {/* EDIT DELIVERY DETAILS MODAL */}
       {/* ============================================================ */}
       {showEditModal && (
         <div className="fixed inset-x-0 top-0 h-[100dvh] bg-[#111813]/70 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
           <div className="bg-white w-full sm:max-w-md rounded-t-[32px] sm:rounded-[32px] p-6 shadow-2xl space-y-4 max-h-[92dvh] overflow-y-auto scroll-pb-40 text-[#111813]">
             <div className="flex justify-between items-center border-b border-[#E7EBE7] pb-3">
               <h3 className="font-black text-sm">Edit Delivery Details</h3>
-              <button onClick={() => setShowEditModal(false)} className="text-stone-400 hover:text-black">
+              <button onClick={() => setShowEditModal(false)} className="text-stone-400 hover:text-black cursor-pointer" aria-label="Close">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -507,7 +534,7 @@ export default function OrderTracker() {
                     value={editDistrict}
                     onChange={(e) => setEditDistrict(e.target.value)}
                     required
-                    className="w-full px-3 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl font-bold text-xs"
+                    className="w-full px-3 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl font-bold text-xs cursor-pointer"
                   >
                     {SL_DISTRICTS.map((d) => (
                       <option key={d} value={d}>{d}</option>
@@ -548,7 +575,7 @@ export default function OrderTracker() {
               <button
                 type="submit"
                 disabled={savingEdit}
-                className="w-full py-3.5 bg-[#006241] hover:bg-[#004F34] text-white font-bold rounded-2xl text-xs active:scale-95 transition shadow-xs disabled:opacity-50 mt-2 flex items-center justify-center gap-2"
+                className="w-full py-3.5 bg-[#006241] hover:bg-[#004F34] text-white font-bold rounded-2xl text-xs active:scale-95 transition shadow-xs disabled:opacity-50 mt-2 flex items-center justify-center gap-2 cursor-pointer"
               >
                 {savingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save Delivery Details'}
               </button>
@@ -558,10 +585,10 @@ export default function OrderTracker() {
       )}
 
       {/* ============================================================ */}
-      {/*  CANCEL ORDER CONFIRMATION MODAL                              */}
+      {/* CANCEL ORDER CONFIRMATION MODAL */}
       {/* ============================================================ */}
       {showCancelModal && (
-        <div className="fixed inset-0 bg-[#111813]/70 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
+        <div className="fixed inset-x-0 top-0 h-[100dvh] bg-[#111813]/70 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
           <div className="bg-white w-full sm:max-w-sm rounded-t-[32px] sm:rounded-[32px] p-6 shadow-2xl space-y-4 text-[#111813]">
             <div className="text-center space-y-2">
               <div className="w-14 h-14 rounded-2xl bg-rose-50 flex items-center justify-center mx-auto">
@@ -583,7 +610,7 @@ export default function OrderTracker() {
                 type="button"
                 onClick={() => setShowCancelModal(false)}
                 disabled={canceling}
-                className="py-3 bg-[#F4F6F4] hover:bg-stone-200 text-[#111813] rounded-2xl text-xs font-bold active:scale-95 transition disabled:opacity-50"
+                className="py-3 bg-[#F4F6F4] hover:bg-stone-200 text-[#111813] rounded-2xl text-xs font-bold active:scale-95 transition disabled:opacity-50 cursor-pointer"
               >
                 Keep Order
               </button>
@@ -591,7 +618,7 @@ export default function OrderTracker() {
                 type="button"
                 onClick={handleCancelOrder}
                 disabled={canceling}
-                className="py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl text-xs font-bold active:scale-95 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                className="py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl text-xs font-bold active:scale-95 transition disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
               >
                 {canceling ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Yes, Cancel'}
               </button>
