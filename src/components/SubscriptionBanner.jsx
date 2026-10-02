@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Clock, AlertTriangle, X } from 'lucide-react';
 
-const DEFAULT_FEE = 2990;
+const DEFAULT_FEE = 1990;
 
 /**
  * SubscriptionBanner — shown on all seller pages.

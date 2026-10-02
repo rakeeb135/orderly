@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { notify } from '../components/Toast';
 
-const DEFAULT_FEE = 2990;
+const DEFAULT_FEE = 1990;
 
 export default function Renewal({ seller, variant = 'full' }) {
   const navigate = useNavigate();

@@ -17,7 +17,6 @@ import QuickOrder from './pages/QuickOrder';
 /* ------------------------------------------------------------------ */
 /*  Lazy imports (seller-only — buyers never download these)           */
 /* ------------------------------------------------------------------ */
-const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Orders = lazy(() => import('./pages/Orders'));
 const OrderDetail = lazy(() => import('./pages/OrderDetail'));
 const Products = lazy(() => import('./pages/Products'));
@@ -171,9 +170,14 @@ export default function App() {
           <Route path="/order/:id" element={<OrderTracker />} />
 
           <Route element={<ProtectedShell />}>
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<DashboardWrapper />} />
-            <Route path="/orders" element={<OrdersWrapper />} />
+            {/* Home (renders Orders) */}
+            <Route path="/" element={<OrdersWrapper />} />
+
+            {/* Legacy redirects — old links still work */}
+            <Route path="/dashboard" element={<Navigate to="/" replace />} />
+            <Route path="/orders" element={<Navigate to="/" replace />} />
+
+            {/* Rest of the seller app */}
             <Route path="/orders/:id" element={<OrderDetailWrapper />} />
             <Route path="/products" element={<ProductsWrapper />} />
             <Route path="/customers" element={<CustomersWrapper />} />
@@ -192,14 +196,9 @@ export default function App() {
 /* ------------------------------------------------------------------ */
 /*  Auth-gated wrappers                                                */
 /* ------------------------------------------------------------------ */
-function DashboardWrapper() {
-  const { seller } = useOutletContext();
-  return <Dashboard seller={seller} />;
-}
-
 function OrdersWrapper() {
-  const { seller } = useOutletContext();
-  return <Orders seller={seller} />;
+  const { seller, onOpenPOS } = useOutletContext();
+  return <Orders seller={seller} onOpenPOS={onOpenPOS} />;
 }
 
 function OrderDetailWrapper() {
@@ -208,13 +207,20 @@ function OrderDetailWrapper() {
 }
 
 function ProductsWrapper() {
-  const { seller, products, setProducts } = useOutletContext();
-  return <Products seller={seller} products={products} setProducts={setProducts} />;
+  const { seller, products, setProducts, onOpenPOS } = useOutletContext();
+  return (
+    <Products
+      seller={seller}
+      products={products}
+      setProducts={setProducts}
+      onOpenPOS={onOpenPOS}
+    />
+  );
 }
 
 function CustomersWrapper() {
-  const { seller } = useOutletContext();
-  return <Customers seller={seller} />;
+  const { seller, onOpenPOS } = useOutletContext();
+  return <Customers seller={seller} onOpenPOS={onOpenPOS} />;
 }
 
 function SettingsWrapper() {

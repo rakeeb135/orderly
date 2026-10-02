@@ -14,7 +14,11 @@ import {
   Pencil,
   Truck,
   Check,
-  Package
+  Package,
+  PackagePlus,
+  Search,
+  CheckSquare,
+  Square,
 } from 'lucide-react';
 import { createProduct, updateProduct, updateProductStock, deleteProduct, formatLKR } from '../services/dbService';
 import { uploadStoreAsset } from '../services/storageService';
@@ -22,6 +26,7 @@ import { supabase } from '../supabase';
 import { notify } from '../components/Toast';
 import { confirm } from '../components/ConfirmModal';
 import ImageCropper from '../components/ImageCropper';
+import EmptyState from '../components/EmptyState';
 
 const PRESET_COLOR_NAMES = ['Black', 'White', 'Navy', 'Beige', 'Olive', 'Brown', 'Maroon', 'Grey'];
 
@@ -41,34 +46,19 @@ const DEFAULT_CATEGORIES = ['Apparel', 'Watches', 'Footwear', 'Accessories', 'Be
 function buildProductLink(handle, product) {
   if (!handle || !product) return '';
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  // Prefer the clean slug URL. Fall back to UUID query param for
-  // legacy products that somehow have no slug.
-  if (product.slug) {
-    return `${origin}/${handle}/p/${product.slug}`;
-  }
+  if (product.slug) return `${origin}/${handle}/p/${product.slug}`;
   return `${origin}/${handle}?p=${product.id}`;
 }
 
 /* ------------------------------------------------------------------ */
 /*  Detect whether the native share sheet is actually useful          */
-/*                                                                    */
-/*  On mobile (iOS + Android), navigator.share gives a great OS       */
-/*  sheet with WhatsApp, Instagram, Copy, etc.                        */
-/*                                                                    */
-/*  On Windows / macOS / Linux desktop, navigator.share exists but    */
-/*  the sheet shows useless targets (Teams, Outlook, Mail) and often  */
-/*  has no "Copy link" option. So we skip it entirely and go straight */
-/*  to clipboard copy.                                                */
 /* ------------------------------------------------------------------ */
 function prefersNativeShare() {
   if (typeof navigator === 'undefined') return false;
   const ua = navigator.userAgent || '';
-
-  // iPads on iPadOS 13+ masquerade as Macintosh — detect via touch points
   const isIPadOS = /Macintosh/i.test(ua) && (navigator.maxTouchPoints || 0) > 1;
   const isIOS = /iPhone|iPad|iPod/i.test(ua) || isIPadOS;
   const isAndroid = /Android/i.test(ua);
-
   return isIOS || isAndroid;
 }
 
@@ -76,11 +66,7 @@ function prefersNativeShare() {
 /*  Photo tray                                                         */
 /* ------------------------------------------------------------------ */
 const PhotoTray = memo(function PhotoTray({
-  photoUrls,
-  onPhotoSelect,
-  onRemovePhoto,
-  onMakeMain,
-  uploading
+  photoUrls, onPhotoSelect, onRemovePhoto, onMakeMain, uploading,
 }) {
   const fileInputRef = useRef(null);
 
@@ -153,9 +139,7 @@ const PhotoTray = memo(function PhotoTray({
 /*  Category selector                                                  */
 /* ------------------------------------------------------------------ */
 const CategorySelector = memo(function CategorySelector({
-  category,
-  onChangeCategory,
-  savedCategories
+  category, onChangeCategory, savedCategories,
 }) {
   return (
     <div className="space-y-1.5">
@@ -192,14 +176,9 @@ const CategorySelector = memo(function CategorySelector({
 /*  Variants section                                                   */
 /* ------------------------------------------------------------------ */
 const VariantsSection = memo(function VariantsSection({
-  hasVariants,
-  onToggleVariants,
-  selectedColors,
-  onToggleColor,
-  onAddCustomColor,
-  selectedSizes,
-  onToggleSize,
-  onAddCustomSize
+  hasVariants, onToggleVariants,
+  selectedColors, onToggleColor, onAddCustomColor,
+  selectedSizes, onToggleSize, onAddCustomSize,
 }) {
   const [sizeType, setSizeType] = useState('Clothing');
   const [customColorInput, setCustomColorInput] = useState('');
@@ -219,10 +198,7 @@ const VariantsSection = memo(function VariantsSection({
     if (e.key === 'Enter') {
       e.preventDefault();
       const val = customColorInput.trim();
-      if (val) {
-        onAddCustomColor(val);
-        setCustomColorInput('');
-      }
+      if (val) { onAddCustomColor(val); setCustomColorInput(''); }
     }
   };
 
@@ -230,10 +206,7 @@ const VariantsSection = memo(function VariantsSection({
     if (e.key === 'Enter') {
       e.preventDefault();
       const val = customSizeInput.trim();
-      if (val) {
-        onAddCustomSize(val);
-        setCustomSizeInput('');
-      }
+      if (val) { onAddCustomSize(val); setCustomSizeInput(''); }
     }
   };
 
@@ -291,10 +264,7 @@ const VariantsSection = memo(function VariantsSection({
                 type="button"
                 onClick={() => {
                   const val = customColorInput.trim();
-                  if (val) {
-                    onAddCustomColor(val);
-                    setCustomColorInput('');
-                  }
+                  if (val) { onAddCustomColor(val); setCustomColorInput(''); }
                 }}
                 className="px-3 py-1.5 bg-[#111813] text-white rounded-xl text-xs font-bold active:scale-95"
               >
@@ -373,10 +343,7 @@ const VariantsSection = memo(function VariantsSection({
                 type="button"
                 onClick={() => {
                   const val = customSizeInput.trim();
-                  if (val) {
-                    onAddCustomSize(val);
-                    setCustomSizeInput('');
-                  }
+                  if (val) { onAddCustomSize(val); setCustomSizeInput(''); }
                 }}
                 className="px-3 py-1.5 bg-[#111813] text-white rounded-xl text-xs font-bold active:scale-95"
               >
@@ -410,13 +377,8 @@ const VariantsSection = memo(function VariantsSection({
 /*  Product modal                                                      */
 /* ------------------------------------------------------------------ */
 const ProductModal = memo(function ProductModal({
-  isOpen,
-  onClose,
-  editingProduct,
-  sellerId,
-  savedCategories,
-  onSaveCategory,
-  onProductSaved
+  isOpen, onClose, editingProduct, sellerId, savedCategories,
+  onSaveCategory, onProductSaved, onRequestDelete,
 }) {
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -473,7 +435,6 @@ const ProductModal = memo(function ProductModal({
     const toProcess = files.slice(0, available);
     if (!toProcess.length) return;
 
-    // Preload all data URLs so the cropper opens instantly
     const prepared = [];
     for (const file of toProcess) {
       try {
@@ -486,7 +447,6 @@ const ProductModal = memo(function ProductModal({
 
     if (!prepared.length) return;
 
-    // Start with the first — the rest queued
     setPendingCrop({
       current: prepared[0],
       remaining: prepared.slice(1),
@@ -513,12 +473,7 @@ const ProductModal = memo(function ProductModal({
     setPendingCrop((prev) => {
       if (!prev || !prev.remaining.length) return null;
       const [next, ...rest] = prev.remaining;
-      return {
-        current: next,
-        remaining: rest,
-        total: prev.total,
-        index: prev.index + 1,
-      };
+      return { current: next, remaining: rest, total: prev.total, index: prev.index + 1 };
     });
   };
 
@@ -574,15 +529,12 @@ const ProductModal = memo(function ProductModal({
   const handleToggleColor = useCallback((col) => {
     setSelectedColors((prev) => prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col]);
   }, []);
-
   const handleAddCustomColor = useCallback((col) => {
     setSelectedColors((prev) => prev.includes(col) ? prev : [...prev, col]);
   }, []);
-
   const handleToggleSize = useCallback((sz) => {
     setSelectedSizes((prev) => prev.includes(sz) ? prev.filter((s) => s !== sz) : [...prev, sz]);
   }, []);
-
   const handleAddCustomSize = useCallback((sz) => {
     setSelectedSizes((prev) => prev.includes(sz) ? prev : [...prev, sz]);
   }, []);
@@ -609,27 +561,18 @@ const ProductModal = memo(function ProductModal({
           selectedSizes.forEach((sz) => {
             selectedColors.forEach((col) => {
               variantPayload.push({
-                size: sz,
-                color: col,
-                stock: Math.max(1, Math.floor(baseStock / (selectedSizes.length * selectedColors.length)) || 1)
+                size: sz, color: col,
+                stock: Math.max(1, Math.floor(baseStock / (selectedSizes.length * selectedColors.length)) || 1),
               });
             });
           });
         } else if (selectedSizes.length > 0) {
           selectedSizes.forEach((sz) => {
-            variantPayload.push({
-              size: sz,
-              color: null,
-              stock: Math.max(1, Math.floor(baseStock / selectedSizes.length) || 1)
-            });
+            variantPayload.push({ size: sz, color: null, stock: Math.max(1, Math.floor(baseStock / selectedSizes.length) || 1) });
           });
         } else if (selectedColors.length > 0) {
           selectedColors.forEach((col) => {
-            variantPayload.push({
-              size: null,
-              color: col,
-              stock: Math.max(1, Math.floor(baseStock / selectedColors.length) || 1)
-            });
+            variantPayload.push({ size: null, color: col, stock: Math.max(1, Math.floor(baseStock / selectedColors.length) || 1) });
           });
         }
       }
@@ -646,7 +589,7 @@ const ProductModal = memo(function ProductModal({
           stock_count: trackStock ? baseStock : null,
           photo_urls: photoUrls,
           variants: variantPayload,
-          free_delivery: freeDelivery
+          free_delivery: freeDelivery,
         });
         onProductSaved(updated, true);
         notify('Product updated successfully!');
@@ -661,10 +604,10 @@ const ProductModal = memo(function ProductModal({
           trackStock,
           stockCount: trackStock ? baseStock : null,
           category: cleanCat,
-          photoUrls: photoUrls,
+          photoUrls,
           variants: variantPayload,
           freeDelivery,
-          productLimit: 500
+          productLimit: 500,
         });
         onProductSaved(created, false);
         notify('Product published to store!');
@@ -684,7 +627,7 @@ const ProductModal = memo(function ProductModal({
           <h3 className="font-extrabold text-sm">
             {editingProduct ? 'Edit Product' : 'Add New Product'}
           </h3>
-          <button onClick={onClose} className="text-stone-400 hover:text-black">
+          <button onClick={onClose} className="text-stone-400 hover:text-black" aria-label="Close">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -747,7 +690,6 @@ const ProductModal = memo(function ProductModal({
                   className="w-full px-3 py-2 bg-white border border-[#E7EBE7] rounded-xl font-bold text-[#006241] font-mono"
                 />
               </div>
-
               <div>
                 <label className="block text-[10px] font-semibold text-[#5A655D] mb-1">Compare-at Price</label>
                 <input
@@ -758,7 +700,6 @@ const ProductModal = memo(function ProductModal({
                   className="w-full px-3 py-2 bg-white border border-[#E7EBE7] rounded-xl font-mono"
                 />
               </div>
-
               <div>
                 <label className="block text-[10px] font-semibold text-[#5A655D] mb-1">Cost (Private)</label>
                 <input
@@ -785,7 +726,6 @@ const ProductModal = memo(function ProductModal({
             )}
           </div>
 
-          {/* Stock & Availability */}
           <div className="border border-[#E7EBE7] rounded-2xl p-4 space-y-3 bg-white">
             <div className="flex items-center gap-1.5 font-bold text-[#111813]">
               <Package className="w-4 h-4 text-[#006241]" />
@@ -803,9 +743,7 @@ const ProductModal = memo(function ProductModal({
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <span className={`w-3 h-3 rounded-full border-2 ${
-                    !trackStock ? 'border-white bg-white' : 'border-stone-300 bg-white'
-                  }`} />
+                  <span className={`w-3 h-3 rounded-full border-2 ${!trackStock ? 'border-white bg-white' : 'border-stone-300 bg-white'}`} />
                   <span className="font-bold text-xs">Made to Order</span>
                 </div>
                 <div className={`text-[10px] mt-1 ml-5 ${!trackStock ? 'text-white/75' : 'text-[#5A655D]'}`}>
@@ -823,9 +761,7 @@ const ProductModal = memo(function ProductModal({
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <span className={`w-3 h-3 rounded-full border-2 ${
-                    trackStock ? 'border-white bg-white' : 'border-stone-300 bg-white'
-                  }`} />
+                  <span className={`w-3 h-3 rounded-full border-2 ${trackStock ? 'border-white bg-white' : 'border-stone-300 bg-white'}`} />
                   <span className="font-bold text-xs">Track Stock</span>
                 </div>
                 <div className={`text-[10px] mt-1 ml-5 ${trackStock ? 'text-white/75' : 'text-[#5A655D]'}`}>
@@ -887,6 +823,20 @@ const ProductModal = memo(function ProductModal({
           >
             {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : editingProduct ? 'Save Changes' : 'Publish Product'}
           </button>
+
+          {/* Delete product — only when editing an existing product */}
+          {editingProduct?.id && (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onRequestDelete?.(editingProduct);
+              }}
+              className="w-full py-3 text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-2xl text-xs font-bold transition active:scale-95 cursor-pointer flex items-center justify-center gap-1.5"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Delete Product
+            </button>
+          )}
         </form>
 
         <ImageCropper
@@ -914,14 +864,18 @@ const ProductModal = memo(function ProductModal({
 /* ------------------------------------------------------------------ */
 /*  Main catalog page                                                  */
 /* ------------------------------------------------------------------ */
-export default function Products({ seller, products = [], setProducts }) {
+export default function Products({ seller, products = [], setProducts, onOpenPOS }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [restockProduct, setRestockProduct] = useState(null);
   const [restockCount, setRestockCount] = useState('');
-  const [copiedId, setCopiedId] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeCategory, setActiveCategory] = useState('all');
 
-  // Safe localStorage read — never crash on corrupt data
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [deleting, setDeleting] = useState(false);
+
   const [savedCategories, setSavedCategories] = useState(() => {
     try {
       const local = localStorage.getItem(`ordy_cats_${seller?.id}`);
@@ -933,9 +887,17 @@ export default function Products({ seller, products = [], setProducts }) {
     }
   });
 
-  /* ---------------------------------------------------------------- */
-  /*  Realtime — products sync live across tabs / devices              */
-  /* ---------------------------------------------------------------- */
+  // FAB on the Products page dispatches this event to open the Add Product modal
+  useEffect(() => {
+    const handler = () => {
+      setEditingProduct(null);
+      setModalOpen(true);
+    };
+    window.addEventListener('ordy:add-product', handler);
+    return () => window.removeEventListener('ordy:add-product', handler);
+  }, []);
+
+  /* Realtime — products sync live across tabs / devices */
   useEffect(() => {
     if (!seller?.id || typeof setProducts !== 'function') return;
     let isMounted = true;
@@ -956,14 +918,9 @@ export default function Products({ seller, products = [], setProducts }) {
           const { eventType, new: newRow, old: oldRow } = payload;
 
           if (eventType === 'INSERT' && newRow?.id) {
-            setProducts((prev) => {
-              if (prev.some((p) => p.id === newRow.id)) return prev;
-              return [newRow, ...prev];
-            });
+            setProducts((prev) => prev.some((p) => p.id === newRow.id) ? prev : [newRow, ...prev]);
           } else if (eventType === 'UPDATE' && newRow?.id) {
-            setProducts((prev) =>
-              prev.map((p) => (p.id === newRow.id ? { ...p, ...newRow } : p))
-            );
+            setProducts((prev) => prev.map((p) => (p.id === newRow.id ? { ...p, ...newRow } : p)));
           } else if (eventType === 'DELETE' && oldRow?.id) {
             setProducts((prev) => prev.filter((p) => p.id !== oldRow.id));
           }
@@ -981,11 +938,7 @@ export default function Products({ seller, products = [], setProducts }) {
     setSavedCategories((prev) => {
       if (!prev.includes(newCat)) {
         const next = [newCat, ...prev];
-        try {
-          localStorage.setItem(`ordy_cats_${seller?.id}`, JSON.stringify(next));
-        } catch {
-          /* non-blocking */
-        }
+        try { localStorage.setItem(`ordy_cats_${seller?.id}`, JSON.stringify(next)); } catch { /* ignore */ }
         return next;
       }
       return prev;
@@ -994,18 +947,14 @@ export default function Products({ seller, products = [], setProducts }) {
 
   const handleProductSaved = useCallback((productData, isEdit) => {
     if (typeof setProducts === 'function') {
-      if (isEdit) {
-        setProducts((prev) => prev.map((p) => (p.id === productData.id ? productData : p)));
-      } else {
-        setProducts((prev) => [productData, ...prev]);
-      }
+      if (isEdit) setProducts((prev) => prev.map((p) => (p.id === productData.id ? productData : p)));
+      else setProducts((prev) => [productData, ...prev]);
     }
   }, [setProducts]);
 
   const handleRestockSubmit = async (e) => {
     e.preventDefault();
     if (!restockProduct || restockCount === '') return;
-
     try {
       const updated = await updateProductStock(restockProduct.id, restockCount);
       if (typeof setProducts === 'function') {
@@ -1018,10 +967,9 @@ export default function Products({ seller, products = [], setProducts }) {
     }
   };
 
-  const handleDelete = async (id) => {
-    const target = products.find((p) => p.id === id);
+  const handleDelete = async (product) => {
     const ok = await confirm({
-      title: `Delete "${target?.title || 'this product'}"?`,
+      title: `Delete "${product?.title || 'this product'}"?`,
       message: 'This product will be permanently removed from your catalog.',
       confirmLabel: 'Delete',
       cancelLabel: 'Keep',
@@ -1029,25 +977,50 @@ export default function Products({ seller, products = [], setProducts }) {
     });
     if (!ok) return;
     try {
-      await deleteProduct(id);
+      await deleteProduct(product.id);
       if (typeof setProducts === 'function') {
-        setProducts((prev) => prev.filter((p) => p.id !== id));
+        setProducts((prev) => prev.filter((p) => p.id !== product.id));
       }
       notify('Product deleted.');
+      setSelectedIds((prev) => prev.filter((id) => id !== product.id));
     } catch (err) {
       notify(err.message || 'Delete failed', 'error');
     }
   };
 
-  /* ---------------------------------------------------------------- */
-  /*  Per-product share                                                 */
-  /*  - Mobile (iOS / Android): native share sheet                     */
-  /*  - Desktop (Windows / macOS / Linux): direct clipboard copy       */
-  /* ---------------------------------------------------------------- */
+  const handleBatchDelete = async () => {
+    if (!selectedIds.length) return;
+    const ok = await confirm({
+      title: `Delete ${selectedIds.length} product${selectedIds.length === 1 ? '' : 's'}?`,
+      message: 'These products will be permanently removed from your catalog.',
+      confirmLabel: 'Delete All',
+      cancelLabel: 'Keep',
+      tone: 'danger',
+    });
+    if (!ok) return;
+
+    setDeleting(true);
+    try {
+      for (const id of selectedIds) {
+        await deleteProduct(id);
+      }
+      if (typeof setProducts === 'function') {
+        setProducts((prev) => prev.filter((p) => !selectedIds.includes(p.id)));
+      }
+      notify(`Deleted ${selectedIds.length} product${selectedIds.length === 1 ? '' : 's'}.`);
+      setIsSelectionMode(false);
+      setSelectedIds([]);
+    } catch (err) {
+      notify('Delete failed: ' + err.message, 'error');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const handleShareProduct = async (product) => {
     const link = buildProductLink(seller?.handle, product);
     if (!link) {
-      notify('Store handle not set. Configure it in Settings.', 'error');
+      notify('Store handle not set. Configure it in Account.', 'error');
       return;
     }
 
@@ -1056,160 +1029,300 @@ export default function Products({ seller, products = [], setProducts }) {
     if (useNative) {
       const shareMessage = `${product.title} — ${formatLKR(product.price)}\n\nOrder here: ${link}`;
       try {
-        await navigator.share({
-          title: product.title,
-          text: shareMessage,
-        });
+        await navigator.share({ title: product.title, text: shareMessage });
         return;
       } catch (err) {
-        // User cancelled — respect it, no fallback
         if (err?.name === 'AbortError') return;
-        // Any other failure — fall through to clipboard copy
       }
     }
 
-    // Clipboard copy (desktop default, and mobile fallback)
     try {
       await navigator.clipboard.writeText(link);
-      setCopiedId(product.id);
       notify('Product order link copied!');
-      setTimeout(() => setCopiedId(null), 2000);
     } catch {
       window.prompt('Copy this product order link:', link);
     }
   };
 
+  const toggleSelect = (id, e) => {
+    if (e) e.stopPropagation();
+    setSelectedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  };
+
+  const handleSelectAllToggle = () => {
+    if (selectedIds.length === filteredProducts.length) setSelectedIds([]);
+    else setSelectedIds(filteredProducts.map((p) => p.id));
+  };
+
+  const cancelSelectionMode = () => {
+    setIsSelectionMode(false);
+    setSelectedIds([]);
+  };
+
+  /* Filtered + category-ordered list */
+  const categories = useMemo(() => {
+    const set = new Set();
+    products.forEach((p) => { if (p.category && p.category.trim()) set.add(p.category.trim()); });
+    return Array.from(set).sort();
+  }, [products]);
+
+  useEffect(() => {
+    if (activeCategory !== 'all' && !categories.includes(activeCategory)) {
+      setActiveCategory('all');
+    }
+  }, [categories, activeCategory]);
+
+  const filteredProducts = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    let list = products;
+    if (activeCategory !== 'all') list = list.filter((p) => (p.category || '').trim() === activeCategory);
+    if (q) list = list.filter((p) => p.title?.toLowerCase().includes(q) || p.category?.toLowerCase().includes(q));
+    return list;
+  }, [products, searchQuery, activeCategory]);
+
+  useEffect(() => {
+    setSelectedIds([]);
+  }, [activeCategory, searchQuery]);
+
+  const showCategories = categories.length >= 2;
+
   return (
-    <div className="space-y-4 pb-12">
+    <div className="space-y-4 pb-32 max-w-5xl mx-auto">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white border border-[#E7EBE7] rounded-[28px] p-5 shadow-xs">
-        <div>
-          <h1 className="text-lg font-black text-[#111813]">Products Catalog</h1>
-          <p className="text-xs text-[#5A655D]">
-            {products.length} live item{products.length === 1 ? '' : 's'}
+      <div className="px-1 pt-1 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl font-black tracking-tight text-[#111813]">Products</h1>
+          <p className="text-xs text-[#5A655D] mt-1">
+            {products.length} {products.length === 1 ? 'product' : 'products'} live on your store
           </p>
         </div>
         <button
           onClick={() => { setEditingProduct(null); setModalOpen(true); }}
-          className="px-4 py-2 bg-[#006241] hover:bg-[#004F34] text-white rounded-2xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition active:scale-95"
+          className="hidden md:flex items-center gap-1.5 px-4 py-2 bg-[#006241] hover:bg-[#004F34] text-white rounded-xl text-xs font-bold shadow-xs transition active:scale-95 shrink-0 cursor-pointer"
         >
-          <Plus className="w-4 h-4" /> Add Product
+          <Plus className="w-3.5 h-3.5" /> Add Product
         </button>
       </div>
 
-      {/* Tip banner */}
+      {/* Search + Select */}
       {products.length > 0 && (
-        <div className="bg-[#E8F0E9] border border-[#C2D6C5] rounded-2xl p-3 text-[11px] text-[#006241] flex items-start gap-2">
-          <Share2 className="w-4 h-4 shrink-0 mt-0.5" />
-          <div className="leading-relaxed">
-            <strong>Tip:</strong> Tap the <Share2 className="w-3 h-3 inline" /> icon on any product
-            to get its <strong>direct order link</strong>. Paste it in your Instagram bio,
-            WhatsApp status, or TikTok description — buyers tap once and go straight to
-            that product's order page.
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search products…"
+              className="w-full pl-9 pr-8 py-2.5 bg-white border border-[#E7EBE7] focus:border-[#006241] rounded-xl text-sm outline-none font-medium transition placeholder:text-stone-400"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-stone-400 hover:text-[#111813] hover:bg-stone-100 transition cursor-pointer"
+                aria-label="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {!isSelectionMode && (
+            <button
+              type="button"
+              onClick={() => setIsSelectionMode(true)}
+              className="px-3.5 py-2.5 bg-white border border-[#E7EBE7] hover:border-[#006241] text-[#111813] rounded-xl text-xs font-bold flex items-center gap-1.5 transition active:scale-95 shrink-0 cursor-pointer"
+            >
+              <CheckSquare className="w-3.5 h-3.5 text-[#006241]" />
+              Select
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Selection controls bar */}
+      {isSelectionMode && products.length > 0 && (
+        <div className="flex items-center justify-between bg-white border border-[#E7EBE7] rounded-2xl px-4 py-2.5 text-xs">
+          <div className="text-[#5A655D] font-medium">
+            <span className="font-bold text-[#111813]">{selectedIds.length}</span> selected
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleSelectAllToggle}
+              className="font-bold text-[#006241] hover:underline cursor-pointer"
+            >
+              {selectedIds.length === filteredProducts.length ? 'Deselect all' : 'Select all'}
+            </button>
+            <span className="text-stone-300">·</span>
+            <button
+              type="button"
+              onClick={cancelSelectionMode}
+              className="font-bold text-stone-500 hover:text-black cursor-pointer"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}
 
+      {/* Category chips */}
+      {showCategories && !isSelectionMode && (
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none -mx-4 px-4">
+          <button
+            onClick={() => setActiveCategory('all')}
+            className={`px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition active:scale-95 cursor-pointer ${
+              activeCategory === 'all'
+                ? 'bg-[#006241] text-white shadow-xs'
+                : 'bg-white text-[#5A655D] border border-[#E7EBE7] hover:border-stone-400'
+            }`}
+          >
+            All ({products.length})
+          </button>
+          {categories.map((cat) => {
+            const count = products.filter((p) => (p.category || '').trim() === cat).length;
+            return (
+              <button
+                key={cat}
+                onClick={() => setActiveCategory(cat)}
+                className={`px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition active:scale-95 cursor-pointer ${
+                  activeCategory === cat
+                    ? 'bg-[#006241] text-white shadow-xs'
+                    : 'bg-white text-[#5A655D] border border-[#E7EBE7] hover:border-stone-400'
+                }`}
+              >
+                {cat} ({count})
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Product list */}
-      <div className="space-y-2">
-        {products.length === 0 ? (
-          <div className="bg-white border border-[#E7EBE7] rounded-[28px] p-10 text-center text-xs text-[#5A655D]">
-            No products found. Tap <strong>"+ Add Product"</strong> to launch your catalog.
+      {products.length === 0 ? (
+        <EmptyState
+          icon={Tag}
+          title="Add your first product"
+          description="Products you add will show up here and be orderable on your store link."
+          actionLabel="Add Product"
+          actionIcon={Plus}
+          onAction={() => { setEditingProduct(null); setModalOpen(true); }}
+        />
+      ) : filteredProducts.length === 0 ? (
+        <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-10 text-center space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-[#F4F6F4] flex items-center justify-center mx-auto">
+            <Search className="w-5 h-5 text-stone-400" />
           </div>
-        ) : (
-          products.map((p) => {
+          <p className="font-black text-sm text-[#111813]">No products match</p>
+          <p className="text-xs text-[#5A655D]">Try a different keyword or category.</p>
+          <button
+            type="button"
+            onClick={() => { setSearchQuery(''); setActiveCategory('all'); }}
+            className="px-4 py-2 bg-[#F4F6F4] hover:bg-stone-200 border border-[#E7EBE7] text-[#111813] rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer"
+          >
+            Clear filters
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {filteredProducts.map((p) => {
             const hasImgs = p.photo_urls && p.photo_urls.length > 0;
-            const hasVar = p.variants && p.variants.length > 0;
-            const isCopied = copiedId === p.id;
+            const isSelected = selectedIds.includes(p.id);
+            const stockText = p.track_stock
+              ? (p.stock_count > 0 ? `${p.stock_count} units` : 'Sold out')
+              : 'Made to order';
+            const stockTone = p.track_stock
+              ? (p.stock_count > 0 ? 'text-[#5A655D]' : 'text-rose-600 font-bold')
+              : 'text-[#5A655D]';
 
             return (
               <div
                 key={p.id}
-                className="bg-white border border-[#E7EBE7] rounded-[24px] p-4 flex justify-between items-center shadow-xs hover:border-[#006241] transition"
+                onClick={() => {
+                  if (isSelectionMode) toggleSelect(p.id);
+                  else { setEditingProduct(p); setModalOpen(true); }
+                }}
+                className={`group bg-white border rounded-2xl p-3 transition cursor-pointer flex items-center gap-3 ${
+                  isSelected
+                    ? 'border-[#006241] ring-2 ring-[#006241]/15 bg-[#F0FDF4]/40 shadow-sm'
+                    : 'border-[#E7EBE7] hover:border-stone-300 hover:shadow-xs'
+                }`}
               >
-                <div className="flex items-center gap-3.5 min-w-0">
-                  <div className="w-14 h-14 rounded-2xl bg-[#F4F6F4] border border-[#E7EBE7] flex items-center justify-center overflow-hidden shrink-0">
-                    {hasImgs ? (
-                      <img src={p.photo_urls[0]} alt={p.title} className="w-full h-full object-cover" loading="lazy" />
-                    ) : (
-                      <Tag className="w-5 h-5 text-[#006241]" />
+                {/* Selection checkbox */}
+                {isSelectionMode && (
+                  <button
+                    type="button"
+                    onClick={(e) => toggleSelect(p.id, e)}
+                    className="shrink-0 cursor-pointer"
+                    aria-label={isSelected ? 'Deselect product' : 'Select product'}
+                  >
+                    {isSelected ? <CheckSquare className="w-5 h-5 text-[#006241]" /> : <Square className="w-5 h-5 text-stone-300" />}
+                  </button>
+                )}
+
+                {/* Thumb */}
+                <div className="w-14 h-14 rounded-2xl bg-[#F4F6F4] border border-[#E7EBE7] flex items-center justify-center overflow-hidden shrink-0">
+                  {hasImgs ? (
+                    <img src={p.photo_urls[0]} alt={p.title} className="w-full h-full object-cover" loading="lazy" />
+                  ) : (
+                    <Tag className="w-5 h-5 text-[#006241]" />
+                  )}
+                </div>
+
+                {/* Text */}
+                <div className="min-w-0 flex-1">
+                  <h2 className="font-extrabold text-sm text-[#111813] truncate">{p.title}</h2>
+                  <div className="text-sm text-[#006241] font-black mt-0.5">{formatLKR(p.price)}</div>
+                  <div className={`text-[11px] mt-0.5 flex items-center gap-1.5 flex-wrap ${stockTone}`}>
+                    <span>{stockText}</span>
+                    {p.category && (
+                      <>
+                        <span className="text-stone-300">·</span>
+                        <span>{p.category}</span>
+                      </>
+                    )}
+                    {p.free_delivery && (
+                      <>
+                        <span className="text-stone-300">·</span>
+                        <span className="text-[#006241] font-bold">Free</span>
+                      </>
                     )}
                   </div>
-                  <div className="min-w-0">
-                    <h2 className="font-extrabold text-xs text-[#111813] truncate">{p.title}</h2>
-                    <div className="text-xs text-[#006241] font-black mt-0.5">{formatLKR(p.price)}</div>
-                    <div className="text-[11px] text-[#5A655D] mt-0.5 flex items-center gap-2 flex-wrap">
-                      <span>{p.track_stock ? `${p.stock_count} units` : 'Made to order'}</span>
-                      <span>•</span>
-                      <span>{p.category}</span>
-                      {p.free_delivery && (
-                        <>
-                          <span>•</span>
-                          <span className="text-[#006241] font-bold">Free Delivery</span>
-                        </>
-                      )}
-                      {hasVar && (
-                        <>
-                          <span>•</span>
-                          <span className="text-[#006241] font-bold">{p.variants.length} options</span>
-                        </>
-                      )}
-                      {hasImgs && p.photo_urls.length > 1 && (
-                        <>
-                          <span>•</span>
-                          <span>{p.photo_urls.length} photos</span>
-                        </>
-                      )}
-                    </div>
+                </div>
+
+                {/* Actions — hidden in selection mode */}
+                {!isSelectionMode && (
+                  <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                    {p.track_stock && (
+                      <button
+                        type="button"
+                        onClick={() => { setRestockProduct(p); setRestockCount(String(p.stock_count || 0)); }}
+                        className="w-9 h-9 rounded-xl flex items-center justify-center text-stone-500 hover:text-[#006241] hover:bg-[#E8F0E9] transition active:scale-95 cursor-pointer"
+                        aria-label="Update stock"
+                        title="Update stock"
+                      >
+                        <PackagePlus className="w-4 h-4" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleShareProduct(p)}
+                      className="w-9 h-9 rounded-xl flex items-center justify-center text-stone-500 hover:text-[#006241] hover:bg-[#E8F0E9] transition active:scale-95 cursor-pointer"
+                      aria-label="Share order link"
+                      title="Share order link"
+                    >
+                      <Share2 className="w-4 h-4" />
+                    </button>
                   </div>
-                </div>
-
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    onClick={() => handleShareProduct(p)}
-                    className={`p-2 rounded-xl transition active:scale-95 ${
-                      isCopied
-                        ? 'bg-[#E8F0E9] text-[#006241]'
-                        : 'text-[#5A655D] hover:text-[#006241] bg-[#F4F6F4]'
-                    }`}
-                    title={isCopied ? 'Link copied!' : 'Share product order link'}
-                  >
-                    {isCopied ? <Check className="w-3.5 h-3.5" /> : <Share2 className="w-3.5 h-3.5" />}
-                  </button>
-
-                  <button
-                    onClick={() => { setEditingProduct(p); setModalOpen(true); }}
-                    className="p-2 text-stone-600 hover:text-[#006241] bg-[#F4F6F4] hover:bg-stone-200 rounded-xl transition active:scale-95"
-                    title="Edit Product"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setRestockProduct(p);
-                      setRestockCount(p.stock_count.toString());
-                    }}
-                    className="p-2 text-[#006241] bg-[#E8F0E9] rounded-xl transition active:scale-95"
-                    title="Update Stock"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                  </button>
-
-                  <button
-                    onClick={() => handleDelete(p.id)}
-                    className="p-2 text-stone-400 hover:text-rose-600 transition active:scale-95"
-                    title="Delete Product"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                )}
               </div>
             );
-          })
-        )}
-      </div>
+          })}
+        </div>
+      )}
 
+      {/* Product modal */}
       {modalOpen && (
         <ProductModal
           key={editingProduct?.id || 'new-product'}
@@ -1220,15 +1333,17 @@ export default function Products({ seller, products = [], setProducts }) {
           savedCategories={savedCategories}
           onSaveCategory={handleSaveCategory}
           onProductSaved={handleProductSaved}
+          onRequestDelete={handleDelete}
         />
       )}
 
+      {/* Restock modal */}
       {restockProduct && (
-        <div className="fixed inset-0 bg-[#111813]/70 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-[28px] p-5 max-w-xs w-full shadow-2xl space-y-3 text-xs">
+        <div className="fixed inset-x-0 top-0 h-[100dvh] bg-[#111813]/70 flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-[28px] p-5 max-w-xs w-full shadow-2xl space-y-3 text-xs max-h-[92dvh] overflow-y-auto scroll-pb-40">
             <div className="flex justify-between items-center">
               <h3 className="font-bold text-sm">Update Stock Units</h3>
-              <button onClick={() => setRestockProduct(null)} className="text-stone-400">
+              <button onClick={() => setRestockProduct(null)} className="text-stone-400" aria-label="Close">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -1244,11 +1359,50 @@ export default function Products({ seller, products = [], setProducts }) {
               />
               <button
                 type="submit"
-                className="w-full py-2.5 bg-[#006241] text-white font-bold rounded-xl active:scale-95"
+                className="w-full py-2.5 bg-[#006241] text-white font-bold rounded-xl active:scale-95 cursor-pointer"
               >
                 Save Stock
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Batch action bar */}
+      {isSelectionMode && selectedIds.length > 0 && (
+        <div className="fixed bottom-24 sm:bottom-6 left-4 right-4 max-w-lg mx-auto bg-[#18181B] text-white p-2.5 pl-4 rounded-[20px] shadow-2xl shadow-stone-900/30 flex items-center justify-between gap-2 z-40 border border-stone-800/80 backdrop-blur">
+          <div className="leading-tight shrink-0">
+            <div className="text-xs font-black">{selectedIds.length} selected</div>
+            <div className="text-[10px] text-stone-400">
+              {selectedIds.length === 1 ? 'Product' : 'Products'}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={handleBatchDelete}
+              disabled={deleting}
+              className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 active:scale-95 transition disabled:opacity-50 cursor-pointer"
+            >
+              {deleting ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <>
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Delete
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={cancelSelectionMode}
+              className="p-2 text-stone-400 hover:text-white transition cursor-pointer"
+              aria-label="Cancel selection"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}

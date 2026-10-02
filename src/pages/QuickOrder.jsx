@@ -331,8 +331,8 @@ export default function QuickOrder() {
 
       const pushMessage =
         order.payment_method === 'Bank'
-          ? `${order.customer_name} placed a Bank Transfer quick order for ${formatLKR(order.total_amount)} — awaiting payment`
-          : `${order.customer_name} placed a quick order for ${formatLKR(order.total_amount)}`;
+          ? `${order.customer_name} placed a Bank Transfer order for ${formatLKR(order.total_amount)} — waiting for payment slip`
+          : `${order.customer_name} placed a COD order for ${formatLKR(order.total_amount)} — verify buyer to proceed`;
 
       triggerPushNotification(seller.id, {
         title: `New Order #${order.order_code || order.id.slice(0, 4)}`,

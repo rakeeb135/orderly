@@ -59,7 +59,7 @@ export async function fetchCurrentSeller(authUserId) {
   return data;
 }
 
-export async function createSeller({ authUserId, shopName, handle, email, whatsappNumber }) {
+export async function createSeller({ authUserId, shopName, handle, email, whatsappNumber, monthlyFee = 1990 }) {
   const cleanHandle = handle.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '');
   const cleanPhone = normalizeSLPhone(whatsappNumber);
   if (!isValidSLPhone(cleanPhone)) {
@@ -73,6 +73,7 @@ export async function createSeller({ authUserId, shopName, handle, email, whatsa
       email: email.trim().toLowerCase(), whatsapp_number: cleanPhone,
       subscription_status: 'trial', subscription_expires_at: trialEnd,
       next_order_number: 1,
+      monthly_fee: monthlyFee,
     }])
     .select().single();
   if (error) {
@@ -432,20 +433,67 @@ export async function createBuyerOrder({
   return data.order;
 }
 
+/**
+ * updateOrderStatus — derives timestamps from status so reverting via Undo
+ * doesn't leave a phantom "Packed" or "Dispatched" event on the timeline.
+ */
 export async function updateOrderStatus(orderId, nextStatus, { courierName = null, trackingNumber = null } = {}) {
   const updates = { status: nextStatus };
-  if (nextStatus === 'dispatched') {
+
+  if (nextStatus === 'received') {
+    updates.packed_at = null;
+    updates.dispatched_at = null;
+    updates.delivered_at = null;
+    updates.courier_name = null;
+    updates.tracking_number = null;
+  } else if (nextStatus === 'packed') {
+    updates.packed_at = new Date().toISOString();
+    updates.dispatched_at = null;
+    updates.delivered_at = null;
+  } else if (nextStatus === 'dispatched') {
     updates.dispatched_at = new Date().toISOString();
+    updates.delivered_at = null;
     if (courierName) updates.courier_name = courierName;
     if (trackingNumber) updates.tracking_number = trackingNumber;
-  }
-  if (nextStatus === 'delivered') {
+  } else if (nextStatus === 'delivered') {
     updates.delivered_at = new Date().toISOString();
     updates.payment_status = 'Paid';
     updates.cod_balance = 0;
   }
+
   const { data, error } = await supabase
     .from('orders').update(updates).eq('id', orderId).select().single();
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * updateOrderAddressAsSeller — seller-side edit of delivery details on their
+ * own order. No token needed (RLS scopes it to their seller_id). Distinct
+ * from updateBuyerOrderAddress, which is the token-gated buyer RPC.
+ */
+export async function updateOrderAddressAsSeller(orderId, {
+  customerName, customerPhone, secondaryPhone = '',
+  deliveryAddress, city, district,
+}) {
+  const cleanPhone = normalizeSLPhone(customerPhone);
+  if (!isValidSLPhone(cleanPhone)) {
+    throw new Error('Please enter a valid 10-digit Sri Lankan phone number (07XXXXXXXX).');
+  }
+  const cleanSecondary = secondaryPhone ? normalizeSLPhone(secondaryPhone) : '';
+  const { data, error } = await supabase
+    .from('orders')
+    .update({
+      customer_name: customerName.trim(),
+      customer_phone: cleanPhone,
+      secondary_phone: cleanSecondary,
+      delivery_address: deliveryAddress.trim(),
+      city: city.trim(),
+      district: district.trim(),
+    })
+    .eq('id', orderId)
+    .select()
+    .single();
   if (error) throw error;
   return data;
 }
@@ -641,7 +689,12 @@ export async function markOrderPaymentReceived(orderId) {
   if (fetchErr) throw fetchErr;
   const { data, error } = await supabase
     .from('orders')
-    .update({ payment_status: 'Paid', advance_paid: Number(order.total_amount) || 0, cod_balance: 0 })
+    .update({
+      payment_status: 'Paid',
+      advance_paid: Number(order.total_amount) || 0,
+      cod_balance: 0,
+      payment_confirmed_at: new Date().toISOString(),
+    })
     .eq('id', orderId).select().single();
   if (error) throw error;
   return data;
@@ -706,7 +759,7 @@ export async function bulkUpdateOrderStatus(orderIds, nextStatus) {
   if (!eligible.length) return { updatedOrders: [], skipped: (orders || []).length };
   const eligibleIds = eligible.map((o) => o.id);
   const { data, error } = await supabase
-    .from('orders').update({ status: nextStatus }).in('id', eligibleIds).select();
+    .from('orders').update({ status: nextStatus, packed_at: new Date().toISOString() }).in('id', eligibleIds).select();
   if (error) throw error;
   return { updatedOrders: data || [], skipped: (orders || []).length - (data?.length || 0) };
 }
@@ -775,9 +828,12 @@ export async function deleteBuyerFlag(flagId) {
 // SERVER-SIDE PAGINATION
 // ----------------------------------------------------
 
-export async function getOrderCounts(sellerId) {
+export async function getOrderCounts(sellerId, search = '') {
   if (!sellerId) return { active: 0, received: 0, packed: 0, dispatched: 0, delivered: 0, canceled: 0 };
-  const { data, error } = await supabase.rpc('get_order_counts', { p_seller_id: sellerId });
+  const { data, error } = await supabase.rpc('get_order_counts', {
+    p_seller_id: sellerId,
+    p_search: search || null,
+  });
   if (error) {
     console.warn('getOrderCounts failed:', error.message);
     return { active: 0, received: 0, packed: 0, dispatched: 0, delivered: 0, canceled: 0 };

@@ -33,7 +33,7 @@ import {
 import { notify } from '../components/Toast';
 import { confirm } from '../components/ConfirmModal';
 
-const DEFAULT_FEE = 2990;
+const DEFAULT_FEE = 1990;
 
 const RENEWAL_TEMPLATE = (shop) => {
   const expiry = shop.subscription_expires_at

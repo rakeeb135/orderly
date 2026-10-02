@@ -265,10 +265,12 @@ export default function OrderTracker() {
   const canSelfService = order.status === 'received';
   const canConfirm = !order.buyer_confirmed && !isCanceled && order.status !== 'delivered';
 
-  const getStepActive = (stepName) => {
-    const steps = ['received', 'packed', 'dispatched', 'delivered'];
+  const getStepActive = (stepId) => {
     if (isCanceled) return false;
-    return steps.indexOf(stepName) <= steps.indexOf(order.status);
+    if (stepId === 'received') return true;
+    if (stepId === 'dispatched') return order.status === 'dispatched' || order.status === 'delivered';
+    if (stepId === 'delivered') return order.status === 'delivered';
+    return false;
   };
 
   const sellerWaMsg = `Hi ${seller?.shop_name || 'there'}, I have a question about my order #${order.order_code || order.id.slice(0, 4)}.`;
@@ -317,13 +319,12 @@ export default function OrderTracker() {
             </p>
           </div>
 
-          {/* 4-Stage Pipeline */}
+          {/* 3-Stage Pipeline — buyer-focused (seller-internal states hidden) */}
           {!isCanceled && (
-            <div className="grid grid-cols-4 gap-2 pt-2 border-t border-[#E7EBE7]">
+            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-[#E7EBE7]">
               {[
                 { id: 'received', label: 'Received' },
-                { id: 'packed', label: 'Packed' },
-                { id: 'dispatched', label: 'Dispatched' },
+                { id: 'dispatched', label: 'On the Way' },
                 { id: 'delivered', label: 'Delivered' }
               ].map((s) => {
                 const active = getStepActive(s.id);

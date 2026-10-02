@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
 import {
   Home,
-  FileText,
   Tag,
   Users,
   Settings,
@@ -10,9 +9,6 @@ import {
   Plus,
   LogOut,
   Store,
-  MoreVertical,
-  ShieldCheck,
-  X,
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import POSModal from './POSModal';
@@ -20,7 +16,6 @@ import Toast from './Toast';
 import NotificationCenter from './NotificationCenter';
 import InstallAppModal from './InstallAppModal';
 import SubscriptionBanner from './SubscriptionBanner';
-import ConfirmHost from './ConfirmModal';
 
 /* ------------------------------------------------------------------ */
 /*  Viewport hook — mount only one NotificationCenter at a time        */
@@ -43,18 +38,12 @@ function useIsDesktop() {
 
 export default function Layout({ seller, setSeller, products, setProducts, onOrderCreated }) {
   const [showPOS, setShowPOS] = useState(false);
-  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [hideFAB, setHideFAB] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const isDesktop = useIsDesktop();
 
-  // Close the mobile menu on any route change
-  useEffect(() => {
-    setShowMobileMenu(false);
-  }, [location.pathname]);
-
   const handleLogout = async () => {
-    setShowMobileMenu(false);
     try {
       await supabase.auth.signOut();
     } catch (err) {
@@ -64,11 +53,10 @@ export default function Layout({ seller, setSeller, products, setProducts, onOrd
   };
 
   const navItems = [
-    { label: 'Dashboard', path: '/dashboard', icon: Home },
-    { label: 'Orders', path: '/orders', icon: FileText },
+    { label: 'Home', path: '/', icon: Home },
     { label: 'Products', path: '/products', icon: Tag },
     { label: 'Customers', path: '/customers', icon: Users },
-    { label: 'Settings', path: '/settings', icon: Settings },
+    { label: 'Account', path: '/settings', icon: Settings },
   ];
 
   return (
@@ -117,6 +105,7 @@ export default function Layout({ seller, setSeller, products, setProducts, onOrd
                 <NavLink
                   key={item.path}
                   to={item.path}
+                  end={item.path === '/'}
                   className={({ isActive }) =>
                     `flex items-center gap-3 px-4 py-2.5 rounded-2xl text-xs font-bold transition ${
                       isActive
@@ -183,13 +172,6 @@ export default function Layout({ seller, setSeller, products, setProducts, onOrd
         <div className="flex items-center gap-2">
           {!isDesktop && <NotificationCenter sellerId={seller?.id} />}
 
-          <button
-            onClick={() => setShowPOS(true)}
-            className="px-3 py-2 bg-[#006241] text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-xs active:scale-95 cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" /> Order
-          </button>
-
           {seller?.handle && (
             <Link
               to={`/${seller.handle}`}
@@ -200,108 +182,13 @@ export default function Layout({ seller, setSeller, products, setProducts, onOrd
               <ExternalLink className="w-4 h-4" />
             </Link>
           )}
-
-          <button
-            type="button"
-            onClick={() => setShowMobileMenu(true)}
-            className="p-2 bg-white border border-[#E7EBE7] rounded-xl text-[#5A655D] shadow-xs active:scale-95 transition"
-            title="Account menu"
-            aria-label="Account menu"
-          >
-            <MoreVertical className="w-4 h-4" />
-          </button>
         </div>
       </header>
-
-      {/* MOBILE ACCOUNT MENU */}
-      {showMobileMenu && (
-        <>
-          <div
-            className="md:hidden fixed inset-0 z-[80] bg-black/40 backdrop-blur-sm"
-            onClick={() => setShowMobileMenu(false)}
-          />
-          <div className="md:hidden fixed inset-x-3 bottom-4 z-[90] bg-white border border-[#E7EBE7] rounded-[24px] shadow-2xl overflow-hidden">
-            {/* Shop header */}
-            <div className="p-4 border-b border-[#E7EBE7] flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-[#006241] flex items-center justify-center text-white font-black text-sm shrink-0 overflow-hidden">
-                {seller?.logo_url ? (
-                  <img src={seller.logo_url} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  seller?.shop_name?.[0] || 'O'
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="font-extrabold text-sm truncate">{seller?.shop_name || 'My Store'}</div>
-                <div className="text-[11px] text-[#5A655D] font-mono truncate">/{seller?.handle}</div>
-              </div>
-              <button
-                onClick={() => setShowMobileMenu(false)}
-                className="p-2 text-stone-400 hover:text-black transition"
-                aria-label="Close"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Items */}
-            <div className="divide-y divide-[#E7EBE7]">
-              {seller?.is_super_admin && (
-                <Link
-                  to="/admin"
-                  className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-[#F4F6F4] text-left transition"
-                  onClick={() => setShowMobileMenu(false)}
-                >
-                  <div className="w-8 h-8 rounded-xl bg-[#E8F0E9] flex items-center justify-center shrink-0">
-                    <ShieldCheck className="w-4 h-4 text-[#006241]" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="font-bold text-xs text-[#006241]">Operator Portal</div>
-                    <div className="text-[10px] text-[#5A655D]">Manage all stores</div>
-                  </div>
-                  <ExternalLink className="w-3.5 h-3.5 text-stone-400" />
-                </Link>
-              )}
-
-              {seller?.handle && (
-                <Link
-                  to={`/${seller.handle}`}
-                  target="_blank"
-                  className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-[#F4F6F4] text-left transition"
-                  onClick={() => setShowMobileMenu(false)}
-                >
-                  <div className="w-8 h-8 rounded-xl bg-[#F4F6F4] flex items-center justify-center shrink-0">
-                    <Store className="w-4 h-4 text-[#5A655D]" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="font-bold text-xs">View Storefront</div>
-                    <div className="text-[10px] text-[#5A655D]">See your shop as a buyer</div>
-                  </div>
-                  <ExternalLink className="w-3.5 h-3.5 text-stone-400" />
-                </Link>
-              )}
-
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-rose-50 text-left transition"
-              >
-                <div className="w-8 h-8 rounded-xl bg-rose-50 flex items-center justify-center shrink-0">
-                  <LogOut className="w-4 h-4 text-rose-600" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="font-bold text-xs text-rose-700">Sign out</div>
-                  <div className="text-[10px] text-rose-500">Log out of this device</div>
-                </div>
-              </button>
-            </div>
-          </div>
-        </>
-      )}
 
       {/* MAIN WORKSPACE */}
       <main className="flex-1 md:ml-64 p-4 sm:p-8 max-w-5xl mx-auto w-full pb-28 md:pb-8 md:pt-8">
         <SubscriptionBanner seller={seller} />
-        <Outlet context={{ seller, setSeller, products, setProducts, onOrderCreated, onOpenPOS: () => setShowPOS(true) }} />
+        <Outlet context={{ seller, setSeller, products, setProducts, onOrderCreated, onOpenPOS: () => setShowPOS(true), setHideFAB }} />
       </main>
 
       {/* MOBILE BOTTOM DOCK */}
@@ -312,6 +199,7 @@ export default function Layout({ seller, setSeller, products, setProducts, onOrd
             <NavLink
               key={item.path}
               to={item.path}
+              end={item.path === '/'}
               className={({ isActive }) =>
                 `flex-1 py-2 px-1 rounded-full flex flex-col items-center gap-0.5 transition ${
                   isActive ? 'bg-[#E8F0E9] text-[#006241]' : 'text-[#5A655D]'
@@ -324,6 +212,29 @@ export default function Layout({ seller, setSeller, products, setProducts, onOrd
           );
         })}
       </nav>
+
+      {/* FAB — floating action button (mobile only) */}
+      {(() => {
+        const path = location.pathname;
+        const showFAB = path === '/' || path === '/products' || path === '/customers';
+        if (!showFAB || hideFAB) return null;
+        return (
+          <button
+            type="button"
+            onClick={() => {
+              if (path === '/products') {
+                window.dispatchEvent(new CustomEvent('ordy:add-product'));
+              } else {
+                setShowPOS(true);
+              }
+            }}
+            aria-label={path === '/products' ? 'Add product' : 'Create new order'}
+            className="md:hidden fixed bottom-24 right-4 z-40 w-14 h-14 rounded-full bg-[#006241] hover:bg-[#004F34] text-white shadow-lg shadow-emerald-900/30 flex items-center justify-center transition active:scale-95 cursor-pointer"
+          >
+            <Plus className="w-6 h-6" strokeWidth={2.5} />
+          </button>
+        );
+      })()}
 
       {/* POS MODAL */}
       <POSModal

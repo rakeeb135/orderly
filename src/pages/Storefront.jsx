@@ -71,6 +71,7 @@ export default function Storefront() {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [secondaryPhone, setSecondaryPhone] = useState('');
+  const [showBackupPhone, setShowBackupPhone] = useState(false);
   const [address, setAddress] = useState('');
   const [district, setDistrict] = useState('');
   const [city, setCity] = useState('');
@@ -103,7 +104,10 @@ export default function Storefront() {
         const data = JSON.parse(saved);
         if (data.name) setName(data.name);
         if (data.phone) setPhone(data.phone);
-        if (data.secondaryPhone) setSecondaryPhone(data.secondaryPhone);
+        if (data.secondaryPhone) {
+          setSecondaryPhone(data.secondaryPhone);
+          setShowBackupPhone(true);
+        }
         if (data.address) setAddress(data.address);
         if (data.district && SL_DISTRICTS.includes(data.district)) setDistrict(data.district);
         if (data.city) setCity(data.city);
@@ -323,8 +327,8 @@ export default function Storefront() {
       try { localStorage.removeItem(CART_STORAGE_PREFIX + handle); } catch { /* ignore */ }
 
       const pushMessage = order.payment_method === 'Bank'
-        ? `${cleanName || 'A customer'} placed a Bank Transfer order for ${formatLKR(order.total_amount)} — awaiting payment`
-        : `${cleanName || 'A customer'} placed a COD order for ${formatLKR(order.total_amount)}`;
+        ? `${cleanName || 'A customer'} placed a Bank Transfer order for ${formatLKR(order.total_amount)} — waiting for payment slip`
+        : `${cleanName || 'A customer'} placed a COD order for ${formatLKR(order.total_amount)} — verify buyer to proceed`;
       triggerPushNotification(seller.id, {
         title: `New Order #${order.order_code || order.id.slice(0, 4)}`,
         message: pushMessage,
@@ -484,95 +488,97 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
 
       {selectedProductView && (
         <div className="fixed inset-x-0 top-0 h-[100dvh] bg-[#111813]/70 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
-          <div className="bg-white w-full sm:max-w-md rounded-t-[32px] sm:rounded-[32px] p-6 shadow-2xl space-y-4 max-h-[92dvh] overflow-y-auto scroll-pb-40 text-[#111813]">
-            <div className="flex justify-between items-center border-b border-[#E7EBE7] pb-2">
-              <span className="text-xs font-bold text-[#5A655D] uppercase tracking-wider">{selectedProductView.category || 'Product'}</span>
-              <button onClick={closeProductModal} className="text-stone-400 hover:text-black cursor-pointer" aria-label="Close"><X className="w-5 h-5" /></button>
-            </div>
-            <div className="space-y-2">
-              <div className="w-full aspect-square rounded-2xl bg-stone-100 border border-[#E7EBE7] overflow-hidden">
-                {selectedProductView.photo_urls?.[activePhotoIdx] ? (<img src={selectedProductView.photo_urls[activePhotoIdx]} alt={selectedProductView.title} className="w-full h-full object-cover" />) : (<div className="w-full h-full flex items-center justify-center font-bold text-xl text-stone-300">{selectedProductView.title?.[0]}</div>)}
+          <div className="bg-white w-full sm:max-w-md rounded-t-[32px] sm:rounded-[32px] shadow-2xl max-h-[92dvh] overflow-y-auto scroll-pb-40 text-[#111813] flex flex-col">
+            <div className="p-6 pb-4 space-y-4">
+              <div className="flex justify-between items-center border-b border-[#E7EBE7] pb-2">
+                <span className="text-xs font-bold text-[#5A655D] uppercase tracking-wider">{selectedProductView.category || 'Product'}</span>
+                <button onClick={closeProductModal} className="text-stone-400 hover:text-black cursor-pointer" aria-label="Close"><X className="w-5 h-5" /></button>
               </div>
-              {selectedProductView.photo_urls?.length > 1 && (
-                <div className="flex gap-1.5 overflow-x-auto pb-1">
-                  {selectedProductView.photo_urls.map((img, idx) => (
-                    <button key={idx} onClick={() => setActivePhotoIdx(idx)} className={`w-12 h-12 rounded-xl overflow-hidden border-2 shrink-0 cursor-pointer ${activePhotoIdx === idx ? 'border-[#006241]' : 'border-transparent opacity-60'}`}>
-                      <img src={img} alt="thumb" className="w-full h-full object-cover" />
-                    </button>
-                  ))}
+              <div className="space-y-2">
+                <div className="w-full aspect-square rounded-2xl bg-stone-100 border border-[#E7EBE7] overflow-hidden">
+                  {selectedProductView.photo_urls?.[activePhotoIdx] ? (<img src={selectedProductView.photo_urls[activePhotoIdx]} alt={selectedProductView.title} className="w-full h-full object-cover" />) : (<div className="w-full h-full flex items-center justify-center font-bold text-xl text-stone-300">{selectedProductView.title?.[0]}</div>)}
+                </div>
+                {selectedProductView.photo_urls?.length > 1 && (
+                  <div className="flex gap-1.5 overflow-x-auto pb-1">
+                    {selectedProductView.photo_urls.map((img, idx) => (
+                      <button key={idx} onClick={() => setActivePhotoIdx(idx)} className={`w-12 h-12 rounded-xl overflow-hidden border-2 shrink-0 cursor-pointer ${activePhotoIdx === idx ? 'border-[#006241]' : 'border-transparent opacity-60'}`}>
+                        <img src={img} alt="thumb" className="w-full h-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div>
+                <div className="flex justify-between items-start gap-2">
+                  <div className="min-w-0">
+                    <h2 className="text-base font-black text-[#111813]">{selectedProductView.title}</h2>
+                    <div className="flex items-baseline gap-2 mt-1 flex-wrap">
+                      <div className="text-base font-black text-[#006241]">{formatLKR(selectedProductView.price)}</div>
+                      {selectedProductView.compare_at_price && Number(selectedProductView.compare_at_price) > Number(selectedProductView.price) && (<>
+                        <div className="text-sm font-medium text-stone-400 line-through">{formatLKR(selectedProductView.compare_at_price)}</div>
+                        <span className="text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">Save {formatLKR(Number(selectedProductView.compare_at_price) - Number(selectedProductView.price))}</span>
+                      </>)}
+                    </div>
+                  </div>
+                  {selectedProductView.free_delivery && !modalSoldOut && (<span className="px-2.5 py-1 bg-[#E8F0E9] text-[#006241] font-bold text-[10px] rounded-full shrink-0">Free Delivery</span>)}
+                </div>
+                {(() => { const label = stockLabel(selectedProductView); if (!label) return null; const toneClass = label.tone === 'sold' ? 'text-rose-600' : label.tone === 'low' ? 'text-amber-600' : 'text-[#5A655D]'; return (<div className={`text-[11px] font-bold mt-2 ${toneClass}`}>{label.text}</div>); })()}
+                {selectedProductView.description && (<p className="text-xs text-[#5A655D] mt-2 leading-relaxed">{selectedProductView.description}</p>)}
+              </div>
+              {!modalSoldOut && (modalSizes.length > 0 || modalColors.length > 0) && (
+                <div className="space-y-3 pt-3 border-t border-[#E7EBE7]">
+                  {modalColors.length > 0 && (
+                    <div>
+                      <span className="block text-[11px] font-bold mb-1.5 text-[#5A655D]">Select Color: {chosenColor && <span className="text-[#006241]">({chosenColor})</span>}</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {modalColors.map((col) => (<button key={col} type="button" onClick={() => { setChosenColor(col); setVariantError(''); }} className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${chosenColor === col ? 'bg-[#006241] text-white border-[#006241]' : 'bg-stone-50 text-[#111813] border-[#E7EBE7] hover:border-stone-400'}`}>{col}</button>))}
+                      </div>
+                    </div>
+                  )}
+                  {modalSizes.length > 0 && (
+                    <div>
+                      <span className="block text-[11px] font-bold mb-1.5 text-[#5A655D]">Select Size: {chosenSize && <span className="text-[#006241]">({chosenSize})</span>}</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {modalSizes.map((sz) => (<button key={sz} type="button" onClick={() => { setChosenSize(sz); setVariantError(''); }} className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${chosenSize === sz ? 'bg-[#006241] text-white border-[#006241]' : 'bg-stone-50 text-[#111813] border-[#E7EBE7] hover:border-stone-400'}`}>{sz}</button>))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
-            <div>
-              <div className="flex justify-between items-start gap-2">
-                <div className="min-w-0">
-                  <h2 className="text-base font-black text-[#111813]">{selectedProductView.title}</h2>
-                  <div className="flex items-baseline gap-2 mt-1 flex-wrap">
-                    <div className="text-base font-black text-[#006241]">{formatLKR(selectedProductView.price)}</div>
-                    {selectedProductView.compare_at_price && Number(selectedProductView.compare_at_price) > Number(selectedProductView.price) && (<>
-                      <div className="text-sm font-medium text-stone-400 line-through">{formatLKR(selectedProductView.compare_at_price)}</div>
-                      <span className="text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">Save {formatLKR(Number(selectedProductView.compare_at_price) - Number(selectedProductView.price))}</span>
-                    </>)}
+              {!modalSoldOut && (
+                <div className="flex items-center justify-between bg-stone-50 border border-[#E7EBE7] rounded-xl p-3">
+                  <span className="text-xs font-bold text-[#5A655D]">Quantity</span>
+                  <div className="flex items-center gap-3">
+                    <button type="button" onClick={() => setChosenQty((q) => Math.max(1, q - 1))} disabled={chosenQty <= 1} className="w-8 h-8 rounded-lg bg-white border border-[#E7EBE7] flex items-center justify-center disabled:opacity-40 active:scale-95 transition cursor-pointer" aria-label="Decrease quantity"><Minus className="w-3.5 h-3.5" /></button>
+                    <span className="w-8 text-center font-black text-sm">{chosenQty}</span>
+                    <button type="button" onClick={() => setChosenQty((q) => Math.min(99, q + 1))} className="w-8 h-8 rounded-lg bg-white border border-[#E7EBE7] flex items-center justify-center active:scale-95 transition cursor-pointer" aria-label="Increase quantity"><Plus className="w-3.5 h-3.5" /></button>
                   </div>
                 </div>
-                {selectedProductView.free_delivery && !modalSoldOut && (<span className="px-2.5 py-1 bg-[#E8F0E9] text-[#006241] font-bold text-[10px] rounded-full shrink-0">Free Delivery</span>)}
-              </div>
-              {(() => { const label = stockLabel(selectedProductView); if (!label) return null; const toneClass = label.tone === 'sold' ? 'text-rose-600' : label.tone === 'low' ? 'text-amber-600' : 'text-[#5A655D]'; return (<div className={`text-[11px] font-bold mt-2 ${toneClass}`}>{label.text}</div>); })()}
-              {selectedProductView.description && (<p className="text-xs text-[#5A655D] mt-2 leading-relaxed">{selectedProductView.description}</p>)}
-            </div>
-            {!modalSoldOut && (modalSizes.length > 0 || modalColors.length > 0) && (
-              <div className="space-y-3 pt-3 border-t border-[#E7EBE7]">
-                {modalColors.length > 0 && (
-                  <div>
-                    <span className="block text-[11px] font-bold mb-1.5 text-[#5A655D]">Select Color: {chosenColor && <span className="text-[#006241]">({chosenColor})</span>}</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {modalColors.map((col) => (<button key={col} type="button" onClick={() => { setChosenColor(col); setVariantError(''); }} className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${chosenColor === col ? 'bg-[#006241] text-white border-[#006241]' : 'bg-stone-50 text-[#111813] border-[#E7EBE7] hover:border-stone-400'}`}>{col}</button>))}
-                    </div>
-                  </div>
-                )}
-                {modalSizes.length > 0 && (
-                  <div>
-                    <span className="block text-[11px] font-bold mb-1.5 text-[#5A655D]">Select Size: {chosenSize && <span className="text-[#006241]">({chosenSize})</span>}</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {modalSizes.map((sz) => (<button key={sz} type="button" onClick={() => { setChosenSize(sz); setVariantError(''); }} className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${chosenSize === sz ? 'bg-[#006241] text-white border-[#006241]' : 'bg-stone-50 text-[#111813] border-[#E7EBE7] hover:border-stone-400'}`}>{sz}</button>))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-            {!modalSoldOut && (
-              <div className="flex items-center justify-between bg-stone-50 border border-[#E7EBE7] rounded-xl p-3">
-                <span className="text-xs font-bold text-[#5A655D]">Quantity</span>
-                <div className="flex items-center gap-3">
-                  <button type="button" onClick={() => setChosenQty((q) => Math.max(1, q - 1))} disabled={chosenQty <= 1} className="w-8 h-8 rounded-lg bg-white border border-[#E7EBE7] flex items-center justify-center disabled:opacity-40 active:scale-95 transition cursor-pointer" aria-label="Decrease quantity"><Minus className="w-3.5 h-3.5" /></button>
-                  <span className="w-8 text-center font-black text-sm">{chosenQty}</span>
-                  <button type="button" onClick={() => setChosenQty((q) => Math.min(99, q + 1))} className="w-8 h-8 rounded-lg bg-white border border-[#E7EBE7] flex items-center justify-center active:scale-95 transition cursor-pointer" aria-label="Increase quantity"><Plus className="w-3.5 h-3.5" /></button>
+              )}
+              {variantError && (<div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs px-3 py-2 rounded-xl flex items-center gap-1.5"><AlertCircle className="w-3.5 h-3.5 shrink-0" /><span>{variantError}</span></div>)}
+              {modalSoldOut ? (
+                <div className="space-y-2">
+                  <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs px-3 py-3 rounded-2xl text-center font-bold">This product is sold out.</div>
+                  {cleanWaNumber && (<a href={`https://wa.me/${cleanWaNumber}?text=${encodeURIComponent(`Hi ${seller.shop_name}, is "${selectedProductView.title}" going to be restocked?`)}`} target="_blank" rel="noopener noreferrer" className="w-full py-3 bg-[#E8F0E9] hover:bg-[#D5E5D7] text-[#006241] font-bold rounded-2xl text-xs active:scale-95 transition flex items-center justify-center gap-2"><MessageCircle className="w-4 h-4" /> Ask seller about restock</a>)}
                 </div>
-              </div>
-            )}
-            {variantError && (<div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs px-3 py-2 rounded-xl flex items-center gap-1.5"><AlertCircle className="w-3.5 h-3.5 shrink-0" /><span>{variantError}</span></div>)}
-            {modalSoldOut ? (
-              <div className="space-y-2">
-                <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs px-3 py-3 rounded-2xl text-center font-bold">This product is sold out.</div>
-                {cleanWaNumber && (<a href={`https://wa.me/${cleanWaNumber}?text=${encodeURIComponent(`Hi ${seller.shop_name}, is "${selectedProductView.title}" going to be restocked?`)}`} target="_blank" rel="noopener noreferrer" className="w-full py-3 bg-[#E8F0E9] hover:bg-[#D5E5D7] text-[#006241] font-bold rounded-2xl text-xs active:scale-95 transition flex items-center justify-center gap-2"><MessageCircle className="w-4 h-4" /> Ask seller about restock</a>)}
-              </div>
-            ) : (
-              <>
+              ) : (
                 <button type="button" onClick={addToCartFromModal} className={`w-full py-3.5 font-bold rounded-2xl text-xs active:scale-95 transition shadow-xs flex items-center justify-center gap-2 cursor-pointer ${justAdded ? 'bg-[#E8F0E9] text-[#006241] border border-[#C2D6C5]' : 'bg-[#006241] hover:bg-[#004F34] text-white'}`}>
                   {justAdded ? (<><CheckCircle2 className="w-4 h-4" /> Added — pick another option</>) : (<>Add {chosenQty} to Bag • {formatLKR(Number(selectedProductView.price) * chosenQty)}</>)}
                 </button>
-                {totalItems > 0 && (
-                  <div className="flex items-center justify-between gap-3 pt-3 border-t border-[#E7EBE7]">
-                    <div className="flex items-center gap-2 text-xs min-w-0">
-                      <ShoppingCart className="w-4 h-4 text-[#006241] shrink-0" />
-                      <span className="font-bold text-[#111813] truncate">{totalItems} item{totalItems === 1 ? '' : 's'}</span>
-                      <span className="text-stone-300 shrink-0">·</span>
-                      <span className="font-black text-[#006241] shrink-0">{formatLKR(subtotal)}</span>
-                    </div>
-                    <button type="button" onClick={() => { closeProductModal(); openCheckout(); }} className="px-4 py-2 bg-[#111813] hover:bg-stone-800 text-white rounded-xl text-xs font-bold active:scale-95 transition flex items-center gap-1 shrink-0 cursor-pointer">Checkout <ArrowRight className="w-3 h-3" /></button>
-                  </div>
-                )}
-              </>
+              )}
+            </div>
+
+            {/* Sticky checkout bar — appears when cart has items, always visible at modal bottom */}
+            {totalItems > 0 && !modalSoldOut && (
+              <div className="sticky bottom-0 mt-auto bg-white border-t border-[#E7EBE7] p-4 flex items-center justify-between gap-3 shadow-[0_-4px_16px_rgba(0,0,0,0.04)]">
+                <div className="flex items-center gap-2 text-xs min-w-0">
+                  <ShoppingCart className="w-4 h-4 text-[#006241] shrink-0" />
+                  <span className="font-bold text-[#111813] truncate">{totalItems} item{totalItems === 1 ? '' : 's'}</span>
+                  <span className="text-stone-300 shrink-0">·</span>
+                  <span className="font-black text-[#006241] shrink-0">{formatLKR(subtotal)}</span>
+                </div>
+                <button type="button" onClick={() => { closeProductModal(); openCheckout(); }} className="px-4 py-2.5 bg-[#111813] hover:bg-stone-800 text-white rounded-xl text-xs font-bold active:scale-95 transition flex items-center gap-1 shrink-0 cursor-pointer">Checkout <ArrowRight className="w-3 h-3" /></button>
+              </div>
             )}
           </div>
         </div>
@@ -688,13 +694,39 @@ Amount: ${formatLKR(placedOrder.total_amount)}`;
                   <label className="block font-semibold mb-1">WhatsApp Phone Number *</label>
                   <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0771234567" required autoComplete="tel" className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl font-mono font-bold" />
                 </div>
-                <div>
-                  <div className="flex justify-between items-center mb-1">
-                    <label className="font-semibold">Backup Phone <span className="text-stone-400 font-normal">(Optional)</span></label>
-                    <span className="text-[10px] text-[#5A655D]">Only if WhatsApp is busy</span>
+                {showBackupPhone ? (
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="font-semibold">Backup Phone <span className="text-stone-400 font-normal">(Optional)</span></label>
+                      <button
+                        type="button"
+                        onClick={() => { setShowBackupPhone(false); setSecondaryPhone(''); }}
+                        className="text-[10px] text-[#5A655D] hover:text-rose-600 underline underline-offset-2 cursor-pointer"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    <input
+                      type="tel"
+                      value={secondaryPhone}
+                      onChange={(e) => setSecondaryPhone(e.target.value)}
+                      placeholder="0719876543"
+                      autoFocus
+                      className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl font-mono font-medium"
+                    />
+                    <p className="text-[10px] text-[#5A655D] mt-1">
+                      Only used if WhatsApp is busy or unreachable.
+                    </p>
                   </div>
-                  <input type="tel" value={secondaryPhone} onChange={(e) => setSecondaryPhone(e.target.value)} placeholder="0719876543" className="w-full px-3.5 py-2.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-xl font-mono font-medium" />
-                </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowBackupPhone(true)}
+                    className="w-full py-2.5 bg-transparent border border-dashed border-[#C2D6C5] hover:border-[#006241] hover:bg-[#E8F0E9]/30 rounded-xl text-[11px] font-bold text-[#006241] transition active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    + Add a backup phone number <span className="text-stone-400 font-normal">(optional)</span>
+                  </button>
+                )}
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="block font-semibold mb-1">District *</label>
