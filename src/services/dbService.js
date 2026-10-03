@@ -394,7 +394,6 @@ export async function createOrder({
       }
     }
   }
-  await supabase.from('customers').update({ total_orders: (customer.total_orders || 0) + 1 }).eq('id', customer.id);
   await createNotification(sellerId, {
     title: `New Order #${order.order_code || order.id.slice(0, 4)}`,
     message: `${order.customer_name} placed an order for ${formatLKR(order.total_amount)} (${order.payment_method}).`,
