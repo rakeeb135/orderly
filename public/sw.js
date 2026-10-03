@@ -5,7 +5,7 @@
 /*  No path can ever return undefined to respondWith().                */
 /* ------------------------------------------------------------------ */
 
-const CACHE_VERSION = 'ordy-v1';
+const CACHE_VERSION = 'ordy-v2';
 const APP_SHELL = [
   '/',
   '/manifest.json',
