@@ -4,7 +4,7 @@ import {
   Search, Printer, CheckCircle2, Truck, Package, MessageCircle,
   Loader2, Plus, Check, CheckSquare, Square, X, ChevronRight,
   ArrowRight, Trash2, Landmark, PackageCheck, AlertCircle,
-  AlertTriangle, RefreshCw,
+  AlertTriangle, RefreshCw, Share2,
 } from 'lucide-react';
 import {
   updateOrderStatus,
@@ -25,9 +25,9 @@ import { normalizeSLPhone } from '../utils/phone';
 const PAGE_SIZE = 50;
 
 const PIPELINE_TABS = [
-  { id: 'todo',     label: 'To Do',    emptyTitle: 'No orders yet',      emptyDesc: 'Share your store link and orders will appear here.', clearedTitle: 'All caught up', clearedDesc: 'Nothing needs your attention right now.' },
-  { id: 'shipping', label: 'Shipping', emptyTitle: 'Nothing in transit', emptyDesc: 'Packed and dispatched orders show up here.' },
-  { id: 'history',  label: 'History',  emptyTitle: 'No history yet',     emptyDesc: 'Delivered and returned orders appear here.' },
+  { id: 'todo',     label: 'To Do' },
+  { id: 'shipping', label: 'Shipping' },
+  { id: 'history',  label: 'History' },
 ];
 
 const SRI_LANKAN_COURIERS = [
@@ -91,7 +91,7 @@ function isEligibleForPack(ord) {
   return false;
 }
 
-/* Quiet section divider — a small colored bar + label. Not a banner. */
+/* Persistent section divider. Shows count always. Optional empty message below. */
 function SectionDivider({ tone, label, count }) {
   const toneStyle = {
     waiting: { bar: 'bg-amber-400', text: 'text-amber-700' },
@@ -106,10 +106,16 @@ function SectionDivider({ tone, label, count }) {
       <span className={`text-[11px] font-black uppercase tracking-wider ${toneStyle.text}`}>
         {label}
       </span>
-      <span className="text-[11px] font-bold text-stone-400">
-        {count}
-      </span>
+      <span className="text-[11px] font-bold text-stone-400">{count}</span>
       <span className="flex-1 h-px bg-[#E7EBE7]" />
+    </div>
+  );
+}
+
+function SectionEmptyText({ children }) {
+  return (
+    <div className="text-[11px] text-stone-400 px-1 -mt-1 pb-1 leading-snug">
+      {children}
     </div>
   );
 }
@@ -156,6 +162,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
   const [totalCount, setTotalCount] = useState(0);
   const [counts, setCounts] = useState({ active: 0, received: 0, packed: 0, dispatched: 0, delivered: 0, canceled: 0 });
   const [todaySales, setTodaySales] = useState(0);
+  const [todayOrderCount, setTodayOrderCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState(null);
@@ -224,6 +231,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
       setTotalCount(page.total);
       setCounts(countsData);
       setTodaySales(summaryData?.total_sales || 0);
+      setTodayOrderCount(summaryData?.order_count || 0);
     } catch (err) {
       console.error('Failed to load orders:', err);
       setLoadError(err?.message || 'Network error');
@@ -297,6 +305,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
             if (!isMounted) return;
             setCounts(c);
             setTodaySales(s?.total_sales || 0);
+            setTodayOrderCount(s?.order_count || 0);
           }).catch(() => {});
         }, 500);
 
@@ -348,6 +357,17 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
   const handleNewOrderClick = () => {
     if (typeof onOpenPOS === 'function') onOpenPOS();
     else notify('POS Modal trigger unavailable', 'error');
+  };
+
+  const handleShareStoreLink = async () => {
+    if (!seller?.handle) return;
+    const url = `${window.location.origin}/${seller.handle}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      notify('Store link copied!');
+    } catch {
+      window.prompt('Copy your store link:', url);
+    }
   };
 
   const applyStatusChange = async (orderId, nextStatus, options = {}) => {
@@ -525,7 +545,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
 
   const selectedOrdersData = useMemo(() => orders.filter((o) => selectedOrderIds.includes(o.id)), [orders, selectedOrderIds]);
   const packableCount = useMemo(() => orders.filter((o) => selectedOrderIds.includes(o.id) && isEligibleForPack(o)).length, [orders, selectedOrderIds]);
-  const activeTabMeta = PIPELINE_TABS.find((t) => t.id === activeTab);
 
   const tabCounts = useMemo(() => ({
     todo: counts.received || 0,
@@ -533,7 +552,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
     history: 0,
   }), [counts]);
 
-  const actionCount = counts.received || 0;
   const totalEver = (counts.received || 0) + (counts.packed || 0) + (counts.dispatched || 0) + (counts.delivered || 0) + (counts.canceled || 0);
 
   const renderOrderCard = (ord) => {
@@ -659,45 +677,43 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
     );
   };
 
-  /* Build sections per tab. Sections render only when 2+ sections have content. */
+  /* Always return all sections for structural tabs. Empty ones render placeholder text. */
   const sections = useMemo(() => {
     if (activeTab === 'todo') {
-      const waiting = [];
-      const ready = [];
-      orders.forEach((o) => { if (isEligibleForPack(o)) ready.push(o); else waiting.push(o); });
+      const waiting = orders.filter((o) => !isEligibleForPack(o));
+      const ready = orders.filter((o) => isEligibleForPack(o));
       return [
-        { id: 'waiting', tone: 'waiting', label: 'Needs action', items: waiting },
-        { id: 'ready',   tone: 'ready',   label: 'Ready to pack', items: ready },
-      ].filter((s) => s.items.length > 0);
+        { id: 'waiting', tone: 'waiting', label: 'Needs action', items: waiting, emptyText: 'Nothing waiting for verification right now.' },
+        { id: 'ready',   tone: 'ready',   label: 'Ready to pack', items: ready, emptyText: 'No verified orders waiting to be packed.' },
+      ];
     }
     if (activeTab === 'shipping') {
       const packed = orders.filter((o) => o.status === 'packed');
       const dispatched = orders.filter((o) => o.status === 'dispatched');
       return [
-        { id: 'packed',     tone: 'packed',  label: 'Ready to dispatch', items: packed },
-        { id: 'dispatched', tone: 'transit', label: 'On the way', items: dispatched },
-      ].filter((s) => s.items.length > 0);
+        { id: 'packed',     tone: 'packed',  label: 'Ready to dispatch', items: packed, emptyText: 'No packed orders waiting for courier pickup.' },
+        { id: 'dispatched', tone: 'transit', label: 'On the way', items: dispatched, emptyText: 'No orders in transit right now.' },
+      ];
     }
     return null;
   }, [orders, activeTab]);
 
-  const showDividers = sections && sections.length > 1;
+  const isSearching = Boolean(debouncedSearch.trim());
 
   return (
     <div className="space-y-4 pb-32 text-[#111813] max-w-5xl mx-auto">
+      {/* Context strip — sales only, no duplicate action count */}
       <div className="px-1 pt-1">
         <h1 className="text-xl font-black tracking-tight text-[#111813]">
           {greeting}, {seller?.shop_name || 'there'}
         </h1>
         <p className="text-xs text-[#5A655D] mt-1">
-          <span className="font-bold text-[#111813]">{formatLKR(todaySales)}</span> today
-          {actionCount > 0 && (
-            <>
-              <span className="text-stone-300 mx-1.5">·</span>
-              <button type="button" onClick={() => { setActiveTab('todo'); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="font-bold text-amber-700 hover:underline cursor-pointer">
-                {actionCount} need action
-              </button>
-            </>
+          {todayOrderCount === 0 ? (
+            <span>No orders today</span>
+          ) : todayOrderCount === 1 ? (
+            <><span className="font-bold text-[#111813]">{formatLKR(todaySales)}</span> from 1 order today</>
+          ) : (
+            <><span className="font-bold text-[#111813]">{formatLKR(todaySales)}</span> from {todayOrderCount} orders today</>
           )}
           {searchQuery && /^\d{9,10}$/.test(searchQuery) && (
             <>
@@ -762,50 +778,89 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
         </div>
       ) : loadError ? (
         <ErrorCard message={loadError} onRetry={loadFirstPage} label="orders" />
-      ) : orders.length === 0 ? (
-        <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-14 text-center space-y-3">
-          <div className="w-12 h-12 rounded-2xl bg-[#F4F6F4] flex items-center justify-center mx-auto">
-            {debouncedSearch
-              ? <Search className="w-5 h-5 text-stone-400" />
-              : activeTab === 'todo' && totalEver > 0
-              ? <CheckCircle2 className="w-6 h-6 text-[#006241]" />
-              : <Package className="w-5 h-5 text-stone-400" />}
-          </div>
-          <div className="space-y-1">
-            <p className="font-black text-sm text-[#111813]">
-              {debouncedSearch
-                ? 'No matches found'
-                : activeTab === 'todo' && totalEver > 0
-                ? (activeTabMeta?.clearedTitle || 'All caught up')
-                : (activeTabMeta?.emptyTitle || 'Nothing here')}
-            </p>
-            <p className="text-xs text-[#71717A] max-w-xs mx-auto">
-              {debouncedSearch
-                ? 'Try a different keyword or clear the search.'
-                : activeTab === 'todo' && totalEver > 0
-                ? (activeTabMeta?.clearedDesc || 'Nothing left in your queue. Nice work.')
-                : (activeTabMeta?.emptyDesc || 'Orders will appear here when they arrive.')}
-            </p>
-          </div>
-          {debouncedSearch ? (
-            <button type="button" onClick={() => setSearchQuery('')} className="px-4 py-2 bg-[#F4F6F4] hover:bg-stone-200 border border-[#E7EBE7] text-[#111813] rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer">Clear search</button>
-          ) : activeTab === 'todo' && totalEver === 0 ? (
-            <button type="button" onClick={handleNewOrderClick} className="px-4 py-2 bg-[#006241] hover:bg-[#004F34] text-white rounded-xl text-xs font-bold transition active:scale-95 flex items-center gap-1.5 mx-auto cursor-pointer">
-              <Plus className="w-3.5 h-3.5" /> New Order
-            </button>
-          ) : null}
-        </div>
-      ) : showDividers ? (
-        <div className="space-y-4">
-          {sections.map((section) => (
-            <div key={section.id} className="space-y-2">
-              <SectionDivider tone={section.tone} label={section.label} count={section.items.length} />
-              {section.items.map(renderOrderCard)}
+      ) : isSearching ? (
+        /* Search mode — flat list, no sections */
+        orders.length === 0 ? (
+          <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-14 text-center space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-[#F4F6F4] flex items-center justify-center mx-auto">
+              <Search className="w-5 h-5 text-stone-400" />
             </div>
-          ))}
-        </div>
+            <div className="space-y-1">
+              <p className="font-black text-sm text-[#111813]">No matches found</p>
+              <p className="text-xs text-[#71717A] max-w-xs mx-auto">Try a different keyword or clear the search.</p>
+            </div>
+            <button type="button" onClick={() => setSearchQuery('')} className="px-4 py-2 bg-[#F4F6F4] hover:bg-stone-200 border border-[#E7EBE7] text-[#111813] rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer">Clear search</button>
+          </div>
+        ) : (
+          <div className="space-y-2">{orders.map(renderOrderCard)}</div>
+        )
       ) : (
-        <div className="space-y-2">{orders.map(renderOrderCard)}</div>
+        <>
+          {/* Welcome / Cleared banner for To Do */}
+          {activeTab === 'todo' && orders.length === 0 && totalEver === 0 && (
+            <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-6 text-center space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-[#E8F0E9] flex items-center justify-center mx-auto">
+                <Plus className="w-5 h-5 text-[#006241]" />
+              </div>
+              <div className="space-y-1">
+                <p className="font-black text-sm text-[#111813]">Welcome to Ordy</p>
+                <p className="text-xs text-[#5A655D] max-w-xs mx-auto leading-relaxed">
+                  Share your store link to get your first order. Buyers fill in their own details — you just pack and ship.
+                </p>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2 justify-center pt-1">
+                <button type="button" onClick={handleShareStoreLink} className="px-4 py-2.5 bg-[#006241] hover:bg-[#004F34] text-white rounded-xl text-xs font-bold transition active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer">
+                  <Share2 className="w-3.5 h-3.5" /> Copy store link
+                </button>
+                <button type="button" onClick={handleNewOrderClick} className="px-4 py-2.5 bg-white hover:bg-stone-50 border border-[#E7EBE7] text-[#111813] rounded-xl text-xs font-bold transition active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer">
+                  <Plus className="w-3.5 h-3.5" /> Add manual order
+                </button>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'todo' && orders.length === 0 && totalEver > 0 && (
+            <div className="bg-[#E8F0E9] border border-[#C2D6C5] rounded-2xl p-3.5 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center shrink-0">
+                <CheckCircle2 className="w-4 h-4 text-[#006241]" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-black text-[#006241]">You're all caught up</div>
+                <div className="text-[11px] text-[#006241]/80">Nothing needs your attention right now.</div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'history' && orders.length === 0 && (
+            <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-14 text-center space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-[#F4F6F4] flex items-center justify-center mx-auto">
+                <Package className="w-5 h-5 text-stone-400" />
+              </div>
+              <div className="space-y-1">
+                <p className="font-black text-sm text-[#111813]">No history yet</p>
+                <p className="text-xs text-[#71717A] max-w-xs mx-auto">Delivered and returned orders will appear here.</p>
+              </div>
+            </div>
+          )}
+
+          {/* Sections (structural tabs) or flat list */}
+          {sections ? (
+            <div className="space-y-4">
+              {sections.map((section) => (
+                <div key={section.id} className="space-y-2">
+                  <SectionDivider tone={section.tone} label={section.label} count={section.items.length} />
+                  {section.items.length === 0 ? (
+                    <SectionEmptyText>{section.emptyText}</SectionEmptyText>
+                  ) : (
+                    section.items.map(renderOrderCard)
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : orders.length > 0 ? (
+            <div className="space-y-2">{orders.map(renderOrderCard)}</div>
+          ) : null}
+        </>
       )}
 
       {!loading && !loadError && hasMore && (
