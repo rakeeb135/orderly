@@ -298,7 +298,7 @@ export default function Settings({ seller, setSeller }) {
     } catch (err) {
       console.error('Sign out error:', err);
     }
-    navigate('/login');
+    navigate('/login?mode=login');
   };
 
   /* ---------------------------------------------------------------- */

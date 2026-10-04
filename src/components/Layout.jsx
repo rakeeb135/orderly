@@ -49,7 +49,7 @@ export default function Layout({ seller, setSeller, products, setProducts, onOrd
     } catch (err) {
       console.error('Logout error:', err);
     }
-    navigate('/login');
+    navigate('/login?mode=login');
   };
 
   const navItems = [

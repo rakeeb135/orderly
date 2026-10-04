@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Loader2, AlertCircle, CheckCircle2, Check, Store, Share2, Truck, Package,
   Printer, ShieldCheck, MessageCircle, Smartphone, Plus, Eye, EyeOff,
-  AlertTriangle, MapPin, Lock,
+  AlertTriangle, MapPin, Lock, ArrowDown,
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { createSeller } from '../services/dbService';
@@ -13,8 +13,8 @@ import OrdyLogo from '../components/OrdyLogo';
 /* ------------------------------------------------------------------ */
 /*  Business constants                                                 */
 /* ------------------------------------------------------------------ */
-const PRICE = 1990;           // current launch price
-const STANDARD_PRICE = 2490;  // price after the launch period ends
+const PRICE = 1990;
+const STANDARD_PRICE = 2490;
 const TRIAL_DAYS = 14;
 const fmt = (n) => n.toLocaleString('en-LK');
 const WA_HELP = `https://wa.me/94769944414?text=${encodeURIComponent(
@@ -31,6 +31,8 @@ const SELLERS = [
   ['💍', 'Jewellery'], ['📱', 'Phone accessories'], ['📦', 'Dropshipping'], ['🌿', 'Plants'],
   ['👟', 'Shoes'], ['📚', 'Books'], ['🧸', 'Toys'], ['🎁', 'Gift boxes'],
 ];
+
+const STEP_ICONS = [Store, Share2, Truck];
 
 const STEPS = [
   ['Make your shop', 'Shop name, WhatsApp number, done. It takes about a minute.'],
@@ -88,7 +90,7 @@ details[open] .ordy-plus{transform:rotate(45deg)}
 `;
 
 const inputCls =
-  'w-full px-3.5 py-3 bg-[#F4F6F4] border border-[#E7EBE7] focus:border-[#006241] focus:bg-white rounded-xl text-[15px] outline-none transition select-text focus-visible:ring-2 focus-visible:ring-[#006241]/20';
+  'w-full px-3.5 py-2.5 sm:py-3 bg-[#F4F6F4] border border-[#E7EBE7] focus:border-[#006241] focus:bg-white rounded-xl text-[15px] outline-none transition select-text focus-visible:ring-2 focus-visible:ring-[#006241]/20';
 
 /* ------------------------------------------------------------------ */
 /*  Small pieces                                                       */
@@ -174,7 +176,6 @@ function DmToOrder() {
 
   return (
     <div ref={ref} className="grid sm:grid-cols-2 gap-4 sm:gap-5 items-stretch">
-      {/* WhatsApp chaos */}
       <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-4 sm:p-5">
         <div className="flex items-center gap-2 mb-4">
           <MessageCircle className="w-4 h-4 text-[#5A655D]" />
@@ -207,7 +208,6 @@ function DmToOrder() {
         </div>
       </div>
 
-      {/* Ordy order */}
       <div
         className={`bg-[#006241] text-white rounded-[24px] p-4 sm:p-5 flex flex-col ${
           playing ? 'ordy-bubble' : ''
@@ -391,24 +391,9 @@ function PrintLabelMock() {
           </div>
         </div>
         <div className="mt-3 grid grid-cols-3 gap-1.5">
-          <button
-            type="button"
-            className="py-1.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-lg text-[10px] font-bold"
-          >
-            A4 · 4-up
-          </button>
-          <button
-            type="button"
-            className="py-1.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-lg text-[10px] font-bold"
-          >
-            A6 · Thermal
-          </button>
-          <button
-            type="button"
-            className="py-1.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-lg text-[10px] font-bold"
-          >
-            Courier
-          </button>
+          <button type="button" className="py-1.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-lg text-[10px] font-bold">A4 · 4-up</button>
+          <button type="button" className="py-1.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-lg text-[10px] font-bold">A6 · Thermal</button>
+          <button type="button" className="py-1.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-lg text-[10px] font-bold">Courier</button>
         </div>
       </div>
     </PhoneFrame>
@@ -440,14 +425,12 @@ export default function Auth() {
 
   useReveal();
 
-  /* Already signed in → straight to the app */
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (data?.session) navigate('/', { replace: true });
     });
   }, [navigate]);
 
-  /* Title + display font */
   useEffect(() => {
     const prevTitle = document.title;
     document.title = 'Ordy — Run your shop from one screen';
@@ -477,12 +460,9 @@ export default function Auth() {
 
     return () => {
       document.title = prevTitle;
-      // Font links intentionally left in place — they cache and speed up
-      // subsequent page loads.
     };
   }, []);
 
-  /* Sticky mobile CTA */
   useEffect(() => {
     const el = formRef.current;
     if (!el || !('IntersectionObserver' in window)) return;
@@ -493,7 +473,6 @@ export default function Auth() {
     return () => io.disconnect();
   }, []);
 
-  /* jumpTo and switchMode unified: both clear password + errors */
   const jumpTo = useCallback((nextMode) => {
     setMode(nextMode);
     setErrorMsg('');
@@ -509,6 +488,10 @@ export default function Auth() {
     setSuccessMsg('');
     setPassword('');
     setShowPw(false);
+  };
+
+  const scrollToDemo = () => {
+    document.getElementById('ordy-demo')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   const handleLogin = async (e) => {
@@ -553,17 +536,13 @@ export default function Auth() {
         throw new Error('Pick a store link using letters or numbers, like colombo-apparel.');
       }
 
-      // Best-effort handle availability pre-check so we don't create an
-      // orphan auth user when the handle is already taken.
       let handleTaken = false;
       try {
         const { data: existingSeller } = await supabase.rpc('get_public_seller', {
           p_handle: cleanHandle,
         });
         handleTaken = Boolean(existingSeller?.id);
-      } catch {
-        /* RPC unavailable — fall through and let unique constraint catch it */
-      }
+      } catch { /* fall through */ }
 
       if (handleTaken) {
         setHandleLocked(false);
@@ -610,7 +589,6 @@ export default function Auth() {
     }
   };
 
-  /* Store link auto-fills from shop name until seller edits it */
   const onShopName = (val) => {
     setShopName(val);
     if (!handleTouched) {
@@ -630,7 +608,6 @@ export default function Auth() {
     <div className="min-h-[100dvh] bg-[#F4F6F4] text-[#111813] font-sans select-text overflow-x-hidden relative">
       <style>{STYLES}</style>
 
-      {/* Ambient background */}
       <div
         aria-hidden="true"
         className="pointer-events-none fixed inset-0 z-0 overflow-hidden"
@@ -641,7 +618,6 @@ export default function Auth() {
       </div>
 
       <div className="relative z-10">
-        {/* ---------------- Nav ---------------- */}
         <header className="sticky top-0 z-30 bg-[#F4F6F4]/90 backdrop-blur border-b border-[#E7EBE7]">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
             <OrdyLogo size={32} />
@@ -687,9 +663,17 @@ export default function Auth() {
                 </li>
               ))}
             </ul>
+
+            <button
+              type="button"
+              onClick={scrollToDemo}
+              className="mt-6 inline-flex items-center gap-1.5 text-[13px] font-bold text-[#006241] hover:text-[#004F34] transition group cursor-pointer"
+            >
+              See how it works
+              <ArrowDown className="w-3.5 h-3.5 group-hover:translate-y-0.5 transition-transform" />
+            </button>
           </div>
 
-          {/* Form */}
           <div ref={formRef} className="lg:col-start-2 lg:row-start-1 lg:row-span-2 scroll-mt-20">
             <div className="bg-white border border-[#E7EBE7] rounded-[28px] p-5 sm:p-6 shadow-[0_18px_50px_-24px_rgba(0,98,65,0.35)] lg:sticky lg:top-20">
               <div
@@ -754,7 +738,6 @@ export default function Auth() {
 
               {isSignup ? (
                 <form onSubmit={handleRegister} className="space-y-4">
-                  {/* ---- Your shop ---- */}
                   <div className="space-y-3.5">
                     <div className="text-[11px] font-black text-[#5A655D] uppercase tracking-wider">
                       Your shop
@@ -796,7 +779,7 @@ export default function Auth() {
                         Your store link
                       </span>
                       {showHandleInput ? (
-                        <div className="flex items-center bg-[#F4F6F4] border border-[#E7EBE7] focus-within:border-[#006241] focus-within:bg-white rounded-xl px-3.5 py-3 text-[14px] transition">
+                        <div className="flex items-center bg-[#F4F6F4] border border-[#E7EBE7] focus-within:border-[#006241] focus-within:bg-white rounded-xl px-3.5 py-2.5 sm:py-3 text-[14px] transition">
                           <span className="text-[#5A655D] select-none">
                             {window.location.host}/
                           </span>
@@ -817,7 +800,7 @@ export default function Auth() {
                           />
                         </div>
                       ) : (
-                        <div className="flex items-center justify-between gap-2 bg-[#E8F0E9] rounded-xl px-3.5 py-3 text-[14px]">
+                        <div className="flex items-center justify-between gap-2 bg-[#E8F0E9] rounded-xl px-3.5 py-2.5 sm:py-3 text-[14px]">
                           <span className="truncate">
                             <span className="text-[#5A655D]">{window.location.host}/</span>
                             <span className="font-bold text-[#006241]">{handle}</span>
@@ -837,7 +820,6 @@ export default function Auth() {
                     </div>
                   </div>
 
-                  {/* ---- Your login ---- */}
                   <div className="space-y-3.5 pt-3 border-t border-[#E7EBE7]">
                     <div className="text-[11px] font-black text-[#5A655D] uppercase tracking-wider">
                       Your login
@@ -989,8 +971,7 @@ export default function Auth() {
             </div>
           </div>
 
-          {/* DM → order demo */}
-          <div className="lg:col-start-1 lg:row-start-2 ordy-reveal">
+          <div id="ordy-demo" className="lg:col-start-1 lg:row-start-2 ordy-reveal scroll-mt-20">
             <DmToOrder />
           </div>
         </section>
@@ -1042,7 +1023,7 @@ export default function Auth() {
         </section>
 
         {/* ---------------- How it works ---------------- */}
-        <section className="bg-white border-y border-[#E7EBE7]">
+        <section id="how-it-works" className="bg-white border-y border-[#E7EBE7]">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 py-14 sm:py-20 ordy-reveal">
             <h2
               className="text-3xl sm:text-4xl font-extrabold tracking-tight"
@@ -1051,18 +1032,34 @@ export default function Auth() {
               Live in three steps.
             </h2>
             <ol className="mt-7 grid md:grid-cols-3 gap-5">
-              {STEPS.map(([title, body], i) => (
-                <li
-                  key={title}
-                  className="bg-[#F4F6F4] border border-[#E7EBE7] rounded-3xl p-5 sm:p-6"
-                >
-                  <div className="w-10 h-10 rounded-full bg-[#006241] text-white font-extrabold flex items-center justify-center mb-4 text-[15px]">
-                    {i + 1}
-                  </div>
-                  <h3 className="font-extrabold text-[17px] leading-tight">{title}</h3>
-                  <p className="text-[14px] text-[#5A655D] mt-2 leading-relaxed">{body}</p>
-                </li>
-              ))}
+              {STEPS.map(([title, body], i) => {
+                const Icon = STEP_ICONS[i] || Store;
+                return (
+                  <li
+                    key={title}
+                    className="relative bg-[#F4F6F4] border border-[#E7EBE7] rounded-3xl p-5 sm:p-6 overflow-hidden hover:border-[#006241]/30 transition"
+                  >
+                    <span
+                      className="absolute -top-2 right-3 text-[88px] font-black leading-none select-none pointer-events-none"
+                      style={{ fontFamily: DISPLAY, color: '#006241', opacity: 0.08 }}
+                      aria-hidden="true"
+                    >
+                      {i + 1}
+                    </span>
+
+                    <div className="relative">
+                      <div className="w-11 h-11 rounded-2xl bg-white border border-[#E7EBE7] text-[#006241] flex items-center justify-center shadow-xs mb-4">
+                        <Icon className="w-5 h-5" />
+                      </div>
+                      <div className="text-[10.5px] font-black uppercase tracking-wider text-[#006241]/70 mb-1.5">
+                        Step 0{i + 1}
+                      </div>
+                      <h3 className="font-extrabold text-[17px] leading-tight">{title}</h3>
+                      <p className="text-[14px] text-[#5A655D] mt-2 leading-relaxed">{body}</p>
+                    </div>
+                  </li>
+                );
+              })}
             </ol>
           </div>
         </section>
