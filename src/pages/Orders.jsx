@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import {
-  Search, Printer, CheckCircle2, Clock, Truck, Package, MessageCircle,
-  Loader2, Plus, Check, Layers, CheckSquare, Square, X, ChevronRight,
-  ArrowRight, Trash2, RotateCcw, Landmark, PackageCheck, AlertCircle,
-  AlertTriangle, RefreshCw, Copy,
+  Search, Printer, CheckCircle2, Truck, Package, MessageCircle,
+  Loader2, Plus, Check, CheckSquare, Square, X, ChevronRight,
+  ArrowRight, Trash2, Landmark, PackageCheck, AlertCircle,
+  AlertTriangle, RefreshCw,
 } from 'lucide-react';
 import {
   updateOrderStatus,
@@ -25,12 +25,9 @@ import { normalizeSLPhone } from '../utils/phone';
 const PAGE_SIZE = 50;
 
 const PIPELINE_TABS = [
-  { id: 'active', label: 'Active', emptyTitle: 'No orders yet', emptyDesc: 'Share your store link and orders will appear here.' },
-  { id: 'received', label: 'New', emptyTitle: 'Nothing new', emptyDesc: 'Fresh orders waiting for verification show up here.' },
-  { id: 'packed', label: 'Packed', emptyTitle: 'Nothing packed yet', emptyDesc: 'Orders you\'ve packed will appear here, ready for dispatch.' },
-  { id: 'dispatched', label: 'On the Way', emptyTitle: 'Nothing in transit', emptyDesc: 'Orders with a courier will show up here.' },
-  { id: 'delivered', label: 'Done', emptyTitle: 'Nothing delivered yet', emptyDesc: 'Completed deliveries will be listed here.' },
-  { id: 'canceled', label: 'Returned', emptyTitle: 'No returns', emptyDesc: 'Returned or cancelled orders will appear here.' },
+  { id: 'todo',     label: 'To Do',    emptyTitle: 'No orders yet',          emptyDesc: 'Share your store link and orders will appear here.', clearedTitle: 'All caught up', clearedDesc: 'No orders need your attention right now.' },
+  { id: 'shipping', label: 'Shipping', emptyTitle: 'Nothing in transit',     emptyDesc: 'Packed and dispatched orders will show up here.' },
+  { id: 'history',  label: 'History',  emptyTitle: 'No history yet',         emptyDesc: 'Delivered and returned orders will appear here.' },
 ];
 
 const SRI_LANKAN_COURIERS = [
@@ -51,6 +48,12 @@ function relativeTime(iso) {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
+function isRecent(iso) {
+  if (!iso) return false;
+  const then = new Date(iso).getTime();
+  return Date.now() - then < 5 * 60 * 1000;
+}
+
 function statusStripe(ord) {
   if (ord.status === 'canceled') return 'bg-stone-300';
   if (ord.status === 'delivered') return 'bg-[#006241]';
@@ -64,7 +67,6 @@ function statusStripe(ord) {
   return 'bg-emerald-500';
 }
 
-// Single status per order. Icon hints at "what kind of action".
 function getStatusMeta(ord) {
   if (ord.status === 'canceled') {
     return { label: 'Returned', dot: 'bg-stone-400', text: 'text-stone-500' };
@@ -78,7 +80,6 @@ function getStatusMeta(ord) {
   if (ord.status === 'packed') {
     return { label: 'Packed', dot: 'bg-blue-500', text: 'text-blue-600' };
   }
-  // received
   const isCOD = !ord.payment_method || ord.payment_method === 'COD';
   const isBank = ord.payment_method === 'Bank';
   const awaitingBankPay = isBank && ord.payment_status === 'Awaiting Payment';
@@ -102,9 +103,6 @@ function isEligibleForPack(ord) {
   return false;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Section header — tinted banner for the "New" tab groups           */
-/* ------------------------------------------------------------------ */
 function SectionHeader({ tone, label, subtitle, count }) {
   const style = tone === 'waiting'
     ? { wrapper: 'bg-amber-50 border-amber-200', iconBg: 'bg-amber-100', iconText: 'text-amber-700', title: 'text-amber-900', sub: 'text-amber-700', pill: 'bg-white border-amber-200 text-amber-800' }
@@ -173,7 +171,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState(null);
-  const [activeTab, setActiveTab] = useState('active');
+  const [activeTab, setActiveTab] = useState('todo');
   const [searchQuery, setSearchQuery] = useState(() => {
     try {
       const params = new URLSearchParams(window.location.search);
@@ -224,9 +222,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
     return 'Good evening';
   }, []);
 
-  /* ---------------------------------------------------------------- */
-  /*  Load first page                                                  */
-  /* ---------------------------------------------------------------- */
   const loadFirstPage = useCallback(async () => {
     if (!seller?.id) return;
     setLoading(true);
@@ -264,9 +259,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
     setSelectedOrderIds([]);
   }, [activeTab, debouncedSearch]);
 
-  /* ---------------------------------------------------------------- */
-  /*  Load More                                                        */
-  /* ---------------------------------------------------------------- */
   const hasMore = orders.length < totalCount;
 
   const handleLoadMore = async () => {
@@ -292,9 +284,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
     }
   };
 
-  /* ---------------------------------------------------------------- */
-  /*  Trust lookup — keyed on the phone set                            */
-  /* ---------------------------------------------------------------- */
   const trustPhoneKey = useMemo(() => {
     if (!orders.length) return '';
     const set = new Set();
@@ -315,9 +304,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
     return () => { mounted = false; };
   }, [trustPhoneKey]);
 
-  /* ---------------------------------------------------------------- */
-  /*  Realtime                                                         */
-  /* ---------------------------------------------------------------- */
+  /* Realtime */
   useEffect(() => {
     if (!seller?.id) return;
     let isMounted = true;
@@ -347,9 +334,12 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
             }).catch(() => {});
           }, 500);
 
-          const matchesTab = (row) => currentTab === 'active'
-            ? row.status !== 'delivered' && row.status !== 'canceled'
-            : row.status === currentTab;
+          const matchesTab = (row) => {
+            if (currentTab === 'todo')     return row.status === 'received';
+            if (currentTab === 'shipping') return row.status === 'packed' || row.status === 'dispatched';
+            if (currentTab === 'history')  return row.status === 'delivered' || row.status === 'canceled';
+            return false;
+          };
 
           const matchesSearch = (row) => !currentSearch ||
             row.order_code?.toLowerCase().includes(currentSearch) ||
@@ -393,15 +383,11 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
     };
   }, [seller?.id]);
 
-  /* ---------------------------------------------------------------- */
-  /*  Handlers                                                         */
-  /* ---------------------------------------------------------------- */
   const handleNewOrderClick = () => {
     if (typeof onOpenPOS === 'function') onOpenPOS();
     else notify('POS Modal trigger unavailable', 'error');
   };
 
-  // Central status setter with undo support
   const applyStatusChange = async (orderId, nextStatus, options = {}) => {
     const snapshot = orders.find((o) => o.id === orderId);
     if (!snapshot) return;
@@ -439,7 +425,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
   const handleInlinePack = (orderId, e) => {
     if (e) e.stopPropagation();
     applyStatusChange(orderId, 'packed', {
-      toastMessage: 'Order marked as ready to ship.',
+      toastMessage: 'Order marked as packed.',
       enableUndo: true,
     });
   };
@@ -472,8 +458,8 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
       );
       const updatedCount = updatedOrders.length;
       const message = skipped > 0
-        ? `${updatedCount} packed, ${skipped} skipped (not verified/paid).`
-        : `${updatedCount} order${updatedCount === 1 ? '' : 's'} marked ready.`;
+        ? `${updatedCount} packed, ${skipped} skipped.`
+        : `${updatedCount} order${updatedCount === 1 ? '' : 's'} packed.`;
 
       notify(message, 'success', {
         undo: async () => {
@@ -516,7 +502,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
     const snapshot = orders.find((o) => o.id === target.id);
     if (!snapshot) return;
 
-    // Remember the courier for next time
     try {
       localStorage.setItem(`ordy_last_courier_${seller?.id}`, selectedCourier);
     } catch { /* ignore */ }
@@ -627,12 +612,16 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
   );
 
   const activeTabMeta = PIPELINE_TABS.find((t) => t.id === activeTab);
+
+  const tabCounts = useMemo(() => ({
+    todo: counts.received || 0,
+    shipping: (counts.packed || 0) + (counts.dispatched || 0),
+    history: (counts.delivered || 0) + (counts.canceled || 0),
+  }), [counts]);
+
   const actionCount = counts.received || 0;
   const totalEver = (counts.received || 0) + (counts.packed || 0) + (counts.dispatched || 0) + (counts.delivered || 0) + (counts.canceled || 0);
 
-  /* ---------------------------------------------------------------- */
-  /*  Order card                                                       */
-  /* ---------------------------------------------------------------- */
   const renderOrderCard = (ord) => {
     const isSelected = selectedOrderIds.includes(ord.id);
     const cleanPhone = ord.customer_phone?.replace(/[^0-9]/g, '').replace(/^0/, '94');
@@ -660,6 +649,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
     const needsVerify = isCOD && !ord.buyer_confirmed && ord.status === 'received';
     const needsBankCheck = !isCOD && ord.payment_status === 'Awaiting Payment' && ord.status === 'received';
     const orderCode = ord.order_code || ord.id.slice(0, 4);
+    const isFresh = isRecent(ord.created_at);
 
     return (
       <div
@@ -679,7 +669,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
         <div className={`absolute left-0 top-0 bottom-0 w-1 ${statusStripe(ord)} ${isCanceled ? 'opacity-40' : ''}`} />
 
         <div className="p-3.5 pl-4 flex flex-col gap-2">
-          {/* Row 1 */}
           <div className="flex items-start gap-2.5">
             {isSelectionMode && (
               <button
@@ -694,6 +683,13 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
+                {isFresh && !isCanceled && (
+                  <span className="relative flex w-2 h-2 shrink-0">
+                    <span className="absolute inline-flex h-full w-full rounded-full bg-[#006241] opacity-60 animate-ping" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-[#006241]" />
+                  </span>
+                )}
+
                 <button
                   type="button"
                   onClick={(e) => copyOrderCode(`#${orderCode}`, e)}
@@ -703,7 +699,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                   #{orderCode}
                 </button>
 
-                {/* Status — icon distinguishes WhatsApp vs Bank action */}
                 <span className={`inline-flex items-center gap-1.5 text-[11px] font-bold ${status.text}`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${status.dot} ${status.pulse ? 'animate-pulse' : ''}`} />
                   {status.icon === 'bank' && <Landmark className="w-3 h-3" />}
@@ -711,7 +706,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                   {status.label}
                 </span>
 
-                {/* Trust flag — tappable popover */}
                 {isFlagged && (
                   <button
                     type="button"
@@ -731,7 +725,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                 </span>
               </div>
 
-              {/* Row 2 */}
               <div className="text-sm mt-1 truncate">
                 <span className={`font-semibold ${isCanceled ? 'text-stone-400' : 'text-[#111813]'}`}>
                   {ord.customer_name}
@@ -741,7 +734,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                 )}
               </div>
 
-              {/* Row 3 */}
               <div className="text-xs text-[#5A655D] mt-1 flex items-center gap-1.5 flex-wrap">
                 <Package className="w-3 h-3 text-stone-400 shrink-0" />
                 {visibleItems.map((item, i) => (
@@ -763,7 +755,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
             </div>
           </div>
 
-          {/* Row 4 */}
           <div className="flex items-center justify-between pt-2 border-t border-[#E7EBE7] sm:border-t-0 sm:pt-0 sm:pl-4">
             <div className={`text-sm font-black ${
               isCanceled ? 'text-stone-400 line-through' : 'text-[#111813]'
@@ -832,11 +823,8 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
     );
   };
 
-  /* ---------------------------------------------------------------- */
-  /*  Grouped view for "New" tab                                       */
-  /* ---------------------------------------------------------------- */
   const groupedView = useMemo(() => {
-    if (activeTab !== 'received') return null;
+    if (activeTab !== 'todo') return null;
     const waiting = [];
     const ready = [];
     orders.forEach((o) => {
@@ -846,9 +834,6 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
     return { waiting, ready };
   }, [orders, activeTab]);
 
-  /* ---------------------------------------------------------------- */
-  /*  Render                                                           */
-  /* ---------------------------------------------------------------- */
   return (
     <div className="space-y-4 pb-32 text-[#111813] max-w-5xl mx-auto">
       {/* Context strip */}
@@ -861,7 +846,16 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
           {actionCount > 0 && (
             <>
               <span className="text-stone-300 mx-1.5">·</span>
-              <span className="font-bold text-amber-700">{actionCount} need action</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('todo');
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="font-bold text-amber-700 hover:underline cursor-pointer"
+              >
+                {actionCount} need action
+              </button>
             </>
           )}
           {searchQuery && /^\d{9,10}$/.test(searchQuery) && (
@@ -915,19 +909,19 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
         )}
       </div>
 
-      {/* Tabs */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none -mx-1 px-1">
+      {/* Tabs — three, always fit on screen */}
+      <div className="grid grid-cols-3 gap-1.5 bg-white border border-[#E7EBE7] rounded-2xl p-1">
         {PIPELINE_TABS.map((tab) => {
           const isActive = activeTab === tab.id;
-          const count = counts[tab.id] || 0;
+          const count = tabCounts[tab.id] || 0;
           return (
             <button
               key={tab.id}
               onClick={() => { setActiveTab(tab.id); setSelectedOrderIds([]); }}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all duration-200 border cursor-pointer ${
+              className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer ${
                 isActive
-                  ? 'bg-[#18181B] text-white border-[#18181B] shadow-md shadow-stone-900/10'
-                  : 'bg-white text-[#52525B] border-[#E7EBE7] hover:border-stone-400 hover:text-[#18181B]'
+                  ? 'bg-[#18181B] text-white shadow-sm'
+                  : 'text-[#52525B] hover:bg-stone-50'
               }`}
             >
               <span>{tab.label}</span>
@@ -935,7 +929,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
                 <span className={`min-w-[18px] h-[18px] px-1.5 inline-flex items-center justify-center rounded-full text-[10px] font-bold ${
                   isActive ? 'bg-white/20 text-white' : 'bg-[#F4F6F4] text-stone-600'
                 }`}>
-                  {count}
+                  {count > 99 ? '99+' : count}
                 </span>
               )}
             </button>
@@ -981,7 +975,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
           <div className="w-12 h-12 rounded-2xl bg-[#F4F6F4] flex items-center justify-center mx-auto">
             {debouncedSearch
               ? <Search className="w-5 h-5 text-stone-400" />
-              : activeTab === 'active' && totalEver > 0
+              : activeTab === 'todo' && totalEver > 0
               ? <CheckCircle2 className="w-6 h-6 text-[#006241]" />
               : <Package className="w-5 h-5 text-stone-400" />}
           </div>
@@ -989,15 +983,15 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
             <p className="font-black text-sm text-[#111813]">
               {debouncedSearch
                 ? 'No matches found'
-                : activeTab === 'active' && totalEver > 0
-                ? 'All caught up'
+                : activeTab === 'todo' && totalEver > 0
+                ? (activeTabMeta?.clearedTitle || 'All caught up')
                 : (activeTabMeta?.emptyTitle || 'Nothing here')}
             </p>
             <p className="text-xs text-[#71717A] max-w-xs mx-auto">
               {debouncedSearch
                 ? 'Try a different keyword or clear the search.'
-                : activeTab === 'active' && totalEver > 0
-                ? 'Nothing left in your queue. Nice work.'
+                : activeTab === 'todo' && totalEver > 0
+                ? (activeTabMeta?.clearedDesc || 'Nothing left in your queue. Nice work.')
                 : (activeTabMeta?.emptyDesc || 'Orders will appear here when they arrive.')}
             </p>
           </div>
@@ -1009,7 +1003,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
             >
               Clear search
             </button>
-          ) : (
+          ) : activeTab === 'todo' && totalEver === 0 ? (
             <button
               type="button"
               onClick={handleNewOrderClick}
@@ -1017,7 +1011,7 @@ export default function Orders({ seller, onOpenPOS: propOnOpenPOS }) {
             >
               <Plus className="w-3.5 h-3.5" /> New Order
             </button>
-          )}
+          ) : null}
         </div>
       ) : groupedView ? (
         <div className="space-y-3">
