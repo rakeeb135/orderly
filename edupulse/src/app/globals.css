@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Palette taken from the approved prototype (final_prototype.html). */
+:root {
+  --bg: #fffaf5; --card: #ffffff; --ink: #18181b; --muted: #71717a; --line: #d1fae5;
+  --brand: #047857; --brand-fg: #ffffff; --soft: #ecfdf5; --warn: #b45309; --danger: #b91c1c;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1512; --card: #18211c; --ink: #ecfdf5; --muted: #9ca3af; --line: #244536;
+    --brand: #34d399; --brand-fg: #052e1b; --soft: #12261d; --warn: #fbbf24; --danger: #f87171;
+  }
+}
+html { scroll-padding-top: 4rem; }
+body { background: var(--bg); color: var(--ink); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+
+@layer components {
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-full border border-brand bg-brand px-5 py-2 text-sm font-semibold text-brand-fg transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50; }
+  .btn-outline { @apply bg-transparent text-brand; }
+  .btn-danger { @apply border-danger bg-danger text-white; }
+  .btn-sm { @apply px-3 py-1 text-xs; }
+  .card { @apply rounded-2xl border border-line bg-card p-5; }
+  .input { @apply w-full rounded-xl border border-line bg-card px-3 py-2 text-ink outline-none focus:border-brand; }
+  .label { @apply mb-1 mt-3 block text-sm font-semibold; }
+  .field-error { @apply mt-1 text-sm text-danger; }
+  .chip { @apply mr-1 mt-1 inline-block rounded-full bg-soft px-2.5 py-0.5 text-xs text-brand; }
+}

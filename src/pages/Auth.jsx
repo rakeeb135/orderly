@@ -1,1345 +1,586 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Loader2, AlertCircle, CheckCircle2, Check, Store, Share2, Truck, Package,
-  Printer, ShieldCheck, MessageCircle, Smartphone, Plus, Eye, EyeOff,
-  AlertTriangle, MapPin, Lock, ArrowDown,
+  Loader2, AlertCircle, CheckCircle2, Check, Store, Truck, Printer, ShieldCheck,
+  MessageCircle, Smartphone, Plus, Eye, EyeOff, AlertTriangle, MapPin, Bell,
+  ArrowRight, ArrowLeft, Pencil,
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { createSeller } from '../services/dbService';
 import { normalizeSLPhone, isValidSLPhone } from '../utils/phone';
 import OrdyLogo from '../components/OrdyLogo';
 
-/* ------------------------------------------------------------------ */
-/*  Business constants                                                 */
-/* ------------------------------------------------------------------ */
 const PRICE = 1990;
 const STANDARD_PRICE = 2490;
 const TRIAL_DAYS = 14;
 const fmt = (n) => n.toLocaleString('en-LK');
-const WA_HELP = `https://wa.me/94769944414?text=${encodeURIComponent(
-  'Hi! I have a question about Ordy.'
-)}`;
-const DISPLAY =
-  "'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-
-/* ------------------------------------------------------------------ */
-/*  Content                                                            */
-/* ------------------------------------------------------------------ */
-const SELLERS = [
-  ['👗', 'Clothing'], ['💄', 'Cosmetics'], ['🎂', 'Cakes & food'], ['🧶', 'Handmade'],
-  ['💍', 'Jewellery'], ['📱', 'Phone accessories'], ['📦', 'Dropshipping'], ['🌿', 'Plants'],
-  ['👟', 'Shoes'], ['📚', 'Books'], ['🧸', 'Toys'], ['🎁', 'Gift boxes'],
-];
-
-const STEP_ICONS = [Store, Share2, Truck];
-
-const STEPS = [
-  ['Make your shop', 'Shop name, WhatsApp number, done. It takes about a minute.'],
-  ['Add products, share your link', 'Drop it in your bio, story or chats. Buyers order by themselves.'],
-  ['Get orders ready to ship', 'Name, address, phone and items arrive already filled in.'],
-];
+const WA_HELP = `https://wa.me/94769944414?text=${encodeURIComponent('Hi! I have a question about Ordy.')}`;
+const DISPLAY = "'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+const G = '#006241';
 
 const FAQ = [
-  [
-    'Do I need a real email?',
-    "Any working email you can access — Gmail, Yahoo, anything. We don't send a confirmation email, so your shop opens the moment you tap the button. Just remember the email you used, it's how you log in.",
-  ],
-  [
-    'Do I need a card to start?',
-    `No card, ever. Your ${TRIAL_DAYS} days are free and nothing charges you automatically. If you decide not to continue, your trial simply ends — no surprise bills.`,
-  ],
-  [
-    `What happens when the ${TRIAL_DAYS} days end?`,
-    `You choose. Renew for Rs. ${fmt(PRICE)}/month via a simple bank transfer, or let it pause. No card was ever on file, so there's nothing to cancel or dispute. And because you joined during launch, Rs. ${fmt(PRICE)} is your price for life — it won't go up later.`,
-  ],
-  [
-    'Do you take a cut of my sales?',
-    'No. 0% commission, ever. You pay one monthly fee and buyers pay you directly — COD or bank transfer. What you earn is yours.',
-  ],
-  [
-    'Is my customer data safe?',
-    'Yes. Only you can see your customers, orders, and prices. The buyer trust network is anonymous — you see warnings from other sellers, but never who reported or any private details.',
-  ],
-  [
-    "I'm not techy. Will I manage?",
-    'If you can use WhatsApp, you can use Ordy. Setup takes about a minute. If you get stuck, message us on WhatsApp and a real person will help.',
-  ],
+  ['Do I need a card to start?', `No. Your ${TRIAL_DAYS} days are free and nothing is charged automatically. If you don't continue, your trial just ends.`],
+  ['Which email should I use?', "Any email you can open: Gmail, Yahoo, anything. We don't send a confirmation mail, so your shop opens right away. Remember it, you use it to log in."],
+  [`What happens after ${TRIAL_DAYS} days?`, `You pay Rs. ${fmt(PRICE)} a month by simple bank transfer, or you let it pause. Join now and Rs. ${fmt(PRICE)} stays your price for life.`],
+  ['Do you take a cut of my sales?', 'No. 0% commission. Buyers pay you directly (COD or bank transfer). Every rupee is yours.'],
+  ['Is my customer data safe?', 'Yes. Only you can see your orders, customers and prices. Buyer warnings are anonymous, nobody sees who reported.'],
+  ["I'm not good with tech. Can I manage?", 'If you can use WhatsApp, you can use Ordy. Stuck? Message us on WhatsApp and a real person helps you.'],
 ];
 
-/* ------------------------------------------------------------------ */
-/*  Styles                                                             */
-/* ------------------------------------------------------------------ */
+const TABS = [
+  ['orders', Bell, 'Orders come to you', 'A sound and a notification on your phone the second a buyer orders. Name, address and items are already filled in.'],
+  ['shop', Store, 'Your own shop link', 'Put one link in your bio. Buyers see your products, pick a size, choose their district and order. No more "price?" messages.'],
+  ['trust', ShieldCheck, 'Fake buyers flagged', 'Before you pack a COD parcel, Ordy checks the number. If other sellers reported this buyer, you see a red warning.'],
+  ['label', Printer, 'Print labels in one tap', 'Print parcel labels from your phone. A4 or thermal sticker. Courier sheet ready too.'],
+];
+
 const STYLES = `
-@keyframes ordy-in{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}
-@keyframes ordy-bubble{from{opacity:0;transform:translateY(6px) scale(.94)}to{opacity:1;transform:none}}
-@keyframes ordy-pulse{0%,100%{opacity:1}50%{opacity:.55}}
-.ordy-reveal{opacity:0;transform:translateY(14px);transition:opacity .6s cubic-bezier(.2,.8,.2,1),transform .6s cubic-bezier(.2,.8,.2,1)}
-.ordy-reveal.ordy-show{opacity:1;transform:none}
-.ordy-bubble{opacity:0;animation:ordy-bubble .4s cubic-bezier(.2,.8,.2,1) forwards}
-.ordy-pulse{animation:ordy-pulse 2s ease-in-out infinite}
-details>summary{list-style:none}
-details>summary::-webkit-details-marker{display:none}
-details .ordy-plus{transition:transform .2s}
-details[open] .ordy-plus{transform:rotate(45deg)}
-@media (prefers-reduced-motion:reduce){
-  .ordy-reveal,.ordy-bubble,.ordy-in{opacity:1 !important;animation:none !important;transform:none !important}
-  .ordy-pulse{animation:none}
-  details .ordy-plus{transition:none}
-}
+@keyframes o-float{0%,100%{transform:translateY(0) rotate(var(--r,0deg))}50%{transform:translateY(-10px) rotate(var(--r,0deg))}}
+@keyframes o-pop{from{opacity:0;transform:translateY(8px) scale(.95)}to{opacity:1;transform:none}}
+@keyframes o-drop{0%{opacity:0;transform:translateY(-24px)}12%,85%{opacity:1;transform:none}100%{opacity:0;transform:translateY(-24px)}}
+@keyframes o-ring{0%{box-shadow:0 0 0 0 rgba(245,184,61,.6)}100%{box-shadow:0 0 0 14px rgba(245,184,61,0)}}
+@keyframes o-bar{from{width:0}to{width:100%}}
+.o-float{animation:o-float 6s ease-in-out infinite}
+.o-pop{opacity:0;animation:o-pop .45s cubic-bezier(.2,.8,.2,1) forwards}
+.o-drop{animation:o-drop 4s ease-in-out infinite}
+.o-ring{animation:o-ring 1.6s ease-out infinite}
+.o-rev{opacity:0;transform:translateY(16px);transition:all .7s cubic-bezier(.2,.8,.2,1)}
+.o-rev.o-in{opacity:1;transform:none}
+details>summary{list-style:none}details>summary::-webkit-details-marker{display:none}
+details .o-plus{transition:transform .2s}details[open] .o-plus{transform:rotate(45deg)}
+.o-grain{background-image:radial-gradient(rgba(255,255,255,.07) 1px,transparent 1px);background-size:18px 18px}
+@media (prefers-reduced-motion:reduce){.o-float,.o-drop,.o-ring{animation:none}.o-pop,.o-rev{opacity:1;animation:none;transform:none}}
 `;
 
-const inputCls =
-  'w-full px-3.5 py-2.5 sm:py-3 bg-[#F4F6F4] border border-[#E7EBE7] focus:border-[#006241] focus:bg-white rounded-xl text-[15px] outline-none transition select-text focus-visible:ring-2 focus-visible:ring-[#006241]/20';
-
-/* ------------------------------------------------------------------ */
-/*  Small pieces                                                       */
-/* ------------------------------------------------------------------ */
-function Field({ label, hint, children }) {
-  return (
-    <label className="block">
-      <span className="block text-[13px] font-semibold mb-1.5">{label}</span>
-      {children}
-      {hint && (
-        <span className="block text-[11.5px] text-[#5A655D] mt-1.5 leading-snug">{hint}</span>
-      )}
-    </label>
-  );
-}
+const inp = 'w-full px-4 py-3 bg-[#F4F6F4] border border-[#E3E8E3] focus:border-[#006241] focus:bg-white rounded-xl text-[15px] outline-none transition focus-visible:ring-2 focus-visible:ring-[#006241]/20';
 
 function useReveal() {
   useEffect(() => {
-    const els = document.querySelectorAll('.ordy-reveal');
-    if (!('IntersectionObserver' in window)) {
-      els.forEach((el) => el.classList.add('ordy-show'));
-      return;
-    }
-    const io = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((e) => {
-          if (e.isIntersecting) {
-            e.target.classList.add('ordy-show');
-            io.unobserve(e.target);
-          }
-        });
-      },
-      { rootMargin: '0px 0px -8% 0px', threshold: 0.05 }
-    );
-    els.forEach((el) => io.observe(el));
+    const els = document.querySelectorAll('.o-rev');
+    if (!('IntersectionObserver' in window)) { els.forEach((e) => e.classList.add('o-in')); return; }
+    const io = new IntersectionObserver((es) => es.forEach((e) => {
+      if (e.isIntersecting) { e.target.classList.add('o-in'); io.unobserve(e.target); }
+    }), { threshold: 0.08 });
+    els.forEach((e) => io.observe(e));
     return () => io.disconnect();
   }, []);
 }
 
-function PhoneFrame({ children, className = '' }) {
+/* ---------------- Phone + screens ---------------- */
+function Phone({ children, className = '', style }) {
   return (
-    <div
-      className={`bg-white border border-[#E7EBE7] rounded-[24px] shadow-[0_24px_60px_-28px_rgba(0,98,65,0.28)] overflow-hidden ${className}`}
-    >
-      {children}
+    <div style={style} className={`relative bg-[#111813] rounded-[2.4rem] p-[7px] shadow-[0_40px_80px_-30px_rgba(0,40,25,.55)] ${className}`}>
+      <div className="relative bg-white rounded-[2rem] overflow-hidden h-full">
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 w-16 h-4 bg-[#111813] rounded-full z-20" />
+        {children}
+      </div>
     </div>
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  DM chaos → clean order                                             */
-/* ------------------------------------------------------------------ */
-const CHAT = [
-  ['b', 'Hi! Is the maroon peplum top available in M?'],
-  ['s', 'Yes! Rs. 2,850 plus delivery.'],
-  ['b', 'Send to 42 Temple Road, Peradeniya. Nadeesha, 077 123 4567.'],
-  ['b', 'Actually — can I get it in navy instead?'],
-  ['b', "Also, if I don't pick up, try 077 987 6543."],
-];
+function Screen({ id }) {
+  if (id === 'orders') return (
+    <div className="pt-9 px-3 pb-4 h-full bg-[#F4F6F4]">
+      <div className="o-drop bg-[#111813] text-white rounded-2xl p-2.5 flex items-center gap-2.5 shadow-lg mb-3">
+        <div className="w-8 h-8 rounded-lg bg-[#F5B83D] flex items-center justify-center shrink-0"><Bell className="w-4 h-4 text-[#111813]" /></div>
+        <div className="min-w-0 text-[11px] leading-tight"><b>New order! Rs. 3,200</b><div className="text-white/60">Nadeesha · Peradeniya</div></div>
+      </div>
+      {[['#1042', 'Nadeesha P.', 'Rs. 3,200', 'Ready to pack', 'bg-amber-50 text-amber-800'], ['#1041', 'Kasun S.', 'Rs. 5,400', 'Dispatched', 'bg-emerald-50 text-[#006241]'], ['#1040', 'Fathima R.', 'Rs. 1,750', 'Delivered', 'bg-stone-100 text-stone-600']].map(([n, w, p, s, c], i) => (
+        <div key={n} className="o-pop bg-white rounded-2xl p-3 mb-2 border border-[#E3E8E3]" style={{ animationDelay: `${i * 0.12}s` }}>
+          <div className="flex justify-between text-[12px] font-extrabold"><span className="font-mono">{n}</span><span className="font-mono text-[#006241]">{p}</span></div>
+          <div className="flex justify-between items-center mt-1.5 text-[11px] text-stone-500"><span>{w}</span><span className={`px-2 py-0.5 rounded-full font-bold ${c}`}>{s}</span></div>
+        </div>
+      ))}
+      <div className="mt-3 py-2.5 bg-[#006241] text-white rounded-xl text-[12px] font-bold text-center flex items-center justify-center gap-1.5"><MessageCircle className="w-3.5 h-3.5" /> Confirm on WhatsApp</div>
+    </div>
+  );
+  if (id === 'shop') return (
+    <div className="pt-9 h-full bg-white">
+      <div className="px-3 pb-3 text-center border-b border-[#E3E8E3]">
+        <div className="w-10 h-10 mx-auto rounded-full bg-[#006241] text-white font-black flex items-center justify-center text-sm">CA</div>
+        <div className="font-extrabold text-[13px] mt-1">Colombo Apparel</div>
+        <div className="text-[10px] text-stone-500">ordy.lk/colombo-apparel</div>
+      </div>
+      <div className="grid grid-cols-2 gap-2 p-3">
+        {[['👗', 'Peplum top', '2,850', '#FBE3E8'], ['👜', 'Tote bag', '1,900', '#FFF1CC'], ['👟', 'Sneakers', '4,500', '#DDEBFA'], ['💄', 'Lip set', '1,250', '#E8F0E9']].map(([e, n, p, bg], i) => (
+          <div key={n} className="o-pop rounded-2xl border border-[#E3E8E3] overflow-hidden" style={{ animationDelay: `${i * 0.1}s` }}>
+            <div className="h-16 flex items-center justify-center text-3xl" style={{ background: bg }}>{e}</div>
+            <div className="p-2"><div className="text-[11px] font-bold">{n}</div><div className="text-[10.5px] font-mono text-[#006241] font-bold">Rs. {p}</div></div>
+          </div>
+        ))}
+      </div>
+      <div className="mx-3 py-2.5 bg-[#006241] text-white rounded-xl text-[12px] font-bold text-center">View cart · 1 item</div>
+    </div>
+  );
+  if (id === 'trust') return (
+    <div className="pt-9 px-3 h-full bg-[#F4F6F4]">
+      <div className="text-[10px] font-bold text-stone-500 mb-2">New order #1043 · COD</div>
+      <div className="o-pop bg-rose-50 border-2 border-rose-200 rounded-2xl p-3.5">
+        <div className="flex items-center gap-2"><div className="w-9 h-9 rounded-xl bg-rose-100 flex items-center justify-center"><AlertTriangle className="w-5 h-5 text-rose-600" /></div>
+          <div><div className="text-[13px] font-black text-rose-900 leading-tight">Careful with this buyer</div><div className="text-[11px] text-rose-700">3 reports from 2 sellers</div></div></div>
+        <div className="mt-3 pt-2 border-t border-rose-200 text-[11px] space-y-1">
+          <div className="flex justify-between"><span className="text-rose-700">Common reason</span><b className="text-rose-900">Refused delivery</b></div>
+          <div className="flex justify-between"><span className="text-rose-700">Last report</span><b className="text-rose-900">3 weeks ago</b></div>
+        </div>
+      </div>
+      <div className="o-pop mt-3 bg-white rounded-2xl p-3 border border-[#E3E8E3] text-[11px]" style={{ animationDelay: '.2s' }}>
+        <div className="font-bold">Kamal P. · 077 555 0101</div>
+        <div className="mt-2 grid grid-cols-2 gap-2"><div className="py-2 rounded-lg bg-stone-100 text-center font-bold">Ask for advance</div><div className="py-2 rounded-lg bg-rose-600 text-white text-center font-bold">Cancel</div></div>
+      </div>
+      <p className="mt-3 text-[10px] text-stone-500 text-center">Anonymous. Nobody sees who reported.</p>
+    </div>
+  );
+  return (
+    <div className="pt-9 px-3 h-full bg-[#F4F6F4]">
+      <div className="o-pop border-2 border-[#111813] rounded-lg p-3 bg-white">
+        <div className="flex justify-between pb-2 border-b-2 border-[#111813]"><div className="font-black text-[11px]">COLOMBO APPAREL</div><div className="font-mono font-black text-[13px]">#1042</div></div>
+        <div className="py-2 text-[10.5px] space-y-0.5"><div><b>To:</b> Nadeesha Perera</div><div className="font-mono">077 123 4567</div><div className="text-stone-600">No. 42, Temple Road, Peradeniya</div><div className="font-black">DISTRICT: KANDY</div></div>
+        <div className="pt-2 border-t-2 border-[#111813] text-center"><div className="text-[9px] font-black">CASH ON DELIVERY</div><div className="font-mono font-black text-[15px]">Rs. 3,200</div></div>
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-1.5 text-[10px] font-bold text-center">
+        {['A4 · 4 labels', 'Thermal', 'Courier sheet'].map((t, i) => <div key={t} className={`py-2 rounded-lg border ${i === 0 ? 'bg-[#006241] text-white border-[#006241]' : 'bg-white border-[#E3E8E3]'}`}>{t}</div>)}
+      </div>
+      <div className="mt-3 py-2.5 bg-[#111813] text-white rounded-xl text-[12px] font-bold text-center flex items-center justify-center gap-1.5"><Printer className="w-3.5 h-3.5" /> Print now</div>
+    </div>
+  );
+}
 
-function DmToOrder() {
-  const ref = useRef(null);
-  const [playing, setPlaying] = useState(false);
-
+function Showcase({ onStart }) {
+  const [i, setI] = useState(0);
+  const [auto, setAuto] = useState(true);
   useEffect(() => {
-    const el = ref.current;
-    if (!el || !('IntersectionObserver' in window)) {
-      setPlaying(true);
-      return;
-    }
-    const io = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setPlaying(true);
-          io.disconnect();
-        }
-      },
-      { threshold: 0.25 }
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, []);
-
+    if (!auto) return;
+    const t = setTimeout(() => setI((x) => (x + 1) % TABS.length), 5000);
+    return () => clearTimeout(t);
+  }, [i, auto]);
   return (
-    <div ref={ref} className="grid sm:grid-cols-2 gap-4 sm:gap-5 items-stretch">
-      <div className="bg-white border border-[#E7EBE7] rounded-[24px] p-4 sm:p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <MessageCircle className="w-4 h-4 text-[#5A655D]" />
-          <span className="text-[11px] font-bold text-[#5A655D] uppercase tracking-wider">
-            Today, in your DMs
-          </span>
-        </div>
-        <div className="space-y-1.5">
-          {CHAT.map(([who, text], i) => (
-            <div
-              key={i}
-              className={`max-w-[90%] px-3 py-2 text-[13px] leading-snug ${
-                who === 'b'
-                  ? 'bg-[#F4F6F4] rounded-2xl rounded-bl-md'
-                  : 'bg-[#DCF8C6] rounded-2xl rounded-br-md ml-auto'
-              } ${playing ? 'ordy-bubble' : ''}`}
-              style={playing ? { animationDelay: `${i * 0.22}s` } : undefined}
-            >
-              {text}
-            </div>
+    <section className="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-24 o-rev">
+      <h2 className="text-3xl sm:text-5xl font-extrabold tracking-tight max-w-2xl leading-[1.05]" style={{ fontFamily: DISPLAY }}>
+        Everything your shop needs, in your pocket.
+      </h2>
+      <p className="mt-4 text-[#4B564E] text-[16px] max-w-lg">Tap each one to see how it looks on your phone.</p>
+      <div className="mt-10 grid md:grid-cols-[1fr_auto] gap-10 md:gap-16 items-center">
+        <div className="space-y-2.5 order-2 md:order-1">
+          {TABS.map(([id, Icon, title, body], k) => (
+            <button key={id} type="button" onClick={() => { setI(k); setAuto(false); }}
+              className={`relative w-full text-left rounded-2xl p-4 sm:p-5 border transition cursor-pointer overflow-hidden ${i === k ? 'bg-white border-[#006241]/30 shadow-[0_12px_30px_-18px_rgba(0,98,65,.5)]' : 'bg-transparent border-transparent hover:bg-white/60'}`}>
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition ${i === k ? 'bg-[#006241] text-white' : 'bg-[#E8F0E9] text-[#006241]'}`}><Icon className="w-5 h-5" /></div>
+                <div className="font-extrabold text-[17px]" style={{ fontFamily: DISPLAY }}>{title}</div>
+              </div>
+              {i === k && <p className="mt-2.5 text-[14.5px] text-[#4B564E] leading-relaxed pl-[52px]">{body}</p>}
+              {i === k && auto && <span key={`b${i}`} className="absolute bottom-0 left-0 h-[3px] bg-[#F5B83D]" style={{ animation: 'o-bar 5s linear forwards' }} />}
+            </button>
           ))}
-          <div
-            className={`text-[11.5px] text-[#5A655D] pt-2 italic ${
-              playing ? 'ordy-bubble' : ''
-            }`}
-            style={playing ? { animationDelay: `${CHAT.length * 0.22}s` } : undefined}
-          >
-            …plus 6 more messages to sort out the size, address and backup number.
+          <div className="pt-3 grid grid-cols-2 gap-2.5 text-[13.5px] font-semibold">
+            {[[Smartphone, 'Install like an app (PWA)'], [Truck, 'Sri Lanka districts & delivery fees']].map(([Ic, t]) => (
+              <div key={t} className="flex items-center gap-2 bg-white/70 rounded-xl px-3 py-2.5 border border-[#E3E8E3]"><Ic className="w-4 h-4 text-[#006241] shrink-0" />{t}</div>
+            ))}
           </div>
+        </div>
+        <div className="order-1 md:order-2 flex justify-center">
+          <Phone className="w-[250px] sm:w-[270px] h-[520px] sm:h-[550px]"><div key={i} className="h-full"><Screen id={TABS[i][0]} /></div></Phone>
         </div>
       </div>
+    </section>
+  );
+}
 
-      <div
-        className={`bg-[#006241] text-white rounded-[24px] p-4 sm:p-5 flex flex-col ${
-          playing ? 'ordy-bubble' : ''
-        }`}
-        style={playing ? { animationDelay: `${CHAT.length * 0.22 + 0.3}s` } : undefined}
-      >
-        <div className="flex items-center gap-2 mb-4">
-          <CheckCircle2 className="w-4 h-4 text-white/80" />
-          <span className="text-[11px] font-bold text-white/80 uppercase tracking-wider">
-            With Ordy, the same sale
-          </span>
+/* ---------------- DM mess vs Ordy ---------------- */
+const CHAT = [['b', 'Is the maroon top there in M?'], ['s', 'Yes! Rs. 2,850 + delivery'], ['b', '42 Temple Rd, Peradeniya. Nadeesha 077 123 4567'], ['b', 'Oh wait, navy please 🙏'], ['b', 'If I don’t pick up call 077 987 6543']];
+function DmToOrder() {
+  return (
+    <div className="grid md:grid-cols-[1fr_auto_1fr] gap-4 items-center">
+      <div className="bg-white border border-[#E3E8E3] rounded-3xl p-5">
+        <div className="text-[13px] font-bold text-stone-500 mb-3 flex items-center gap-2"><MessageCircle className="w-4 h-4" /> Now: orders in DMs</div>
+        <div className="space-y-1.5">
+          {CHAT.map(([w, t], k) => (
+            <div key={k} className={`max-w-[88%] px-3 py-2 text-[13px] leading-snug ${w === 'b' ? 'bg-[#F4F6F4] rounded-2xl rounded-bl-md' : 'bg-[#DCF8C6] rounded-2xl rounded-br-md ml-auto'}`}>{t}</div>
+          ))}
+          <div className="text-[12px] text-stone-500 italic pt-1">…and 6 more messages 😮‍💨</div>
         </div>
-
-        <div className="bg-white text-[#111813] rounded-2xl p-4 space-y-3 flex-1">
-          <div className="flex items-center justify-between">
-            <span className="font-extrabold text-[15px] font-mono">#1042</span>
-            <span className="text-[10.5px] font-bold bg-emerald-50 text-[#006241] px-2 py-0.5 rounded-full border border-emerald-200">
-              Ready to Pack
-            </span>
-          </div>
-
-          <div className="text-[13px] leading-snug">
-            <div className="font-bold">Nadeesha Perera</div>
-            <div className="text-[#5A655D] font-mono text-[12px] mt-0.5">077 123 4567</div>
-          </div>
-
-          <div className="text-[12px] text-[#5A655D] flex items-start gap-1.5">
-            <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5 text-stone-400" />
-            <span>No. 42, Temple Road, Peradeniya (Kandy)</span>
-          </div>
-
-          <div className="border-t border-[#E7EBE7] pt-3 space-y-1.5 text-[13px]">
-            <div className="flex items-center justify-between">
-              <span>Peplum top (M) × 1</span>
-              <span className="font-mono font-bold">Rs. 2,850</span>
-            </div>
-            <div className="flex items-center justify-between text-[12px] text-[#5A655D]">
-              <span>Delivery</span>
-              <span className="font-mono">Rs. 350</span>
-            </div>
-          </div>
-
-          <div className="border-t border-[#E7EBE7] pt-3 flex items-center justify-between text-[13px]">
-            <span className="font-bold">Cash on Delivery</span>
-            <span className="font-black text-[#006241] font-mono">Rs. 3,200</span>
-          </div>
-
-          <div className="flex items-center gap-1.5 text-[12px] font-bold text-[#006241] pt-1">
-            <MessageCircle className="w-3.5 h-3.5" /> Confirm on WhatsApp
-          </div>
+      </div>
+      <div className="mx-auto w-11 h-11 rounded-full bg-[#F5B83D] flex items-center justify-center rotate-90 md:rotate-0 shadow-lg"><ArrowRight className="w-5 h-5" /></div>
+      <div className="bg-[#006241] text-white rounded-3xl p-5">
+        <div className="text-[13px] font-bold text-white/80 mb-3 flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> With Ordy: one clean order</div>
+        <div className="bg-white text-[#111813] rounded-2xl p-4 space-y-2.5 text-[13px]">
+          <div className="flex justify-between items-center"><b className="font-mono text-[15px]">#1042</b><span className="text-[10.5px] font-bold bg-emerald-50 text-[#006241] px-2 py-0.5 rounded-full border border-emerald-200">Ready to pack</span></div>
+          <div><b>Nadeesha Perera</b><div className="font-mono text-[12px] text-stone-500">077 123 4567</div></div>
+          <div className="flex gap-1.5 text-[12px] text-stone-500"><MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0" />No. 42, Temple Road, Peradeniya</div>
+          <div className="border-t border-[#E3E8E3] pt-2 flex justify-between"><span>Peplum top (Navy, M)</span><b className="font-mono">Rs. 2,850</b></div>
+          <div className="flex justify-between font-bold"><span>COD total</span><span className="font-mono text-[#006241]">Rs. 3,200</span></div>
         </div>
-
-        <div className="text-[12px] text-white/80 mt-3 leading-snug">
-          One link. The buyer filled everything in.
-        </div>
+        <div className="text-[12.5px] text-white/85 mt-3">The buyer typed everything. You just pack.</div>
       </div>
     </div>
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Feature mockups                                                    */
-/* ------------------------------------------------------------------ */
-function OrderReceivedMock() {
-  return (
-    <PhoneFrame>
-      <div className="px-4 pt-4 pb-3 border-b border-[#E7EBE7] bg-[#F4F6F4]/50 flex items-center justify-between">
-        <span className="text-[11px] font-black text-[#5A655D] uppercase tracking-wider">
-          New order
-        </span>
-        <span className="ordy-pulse text-[10.5px] font-bold bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-full">
-          Action needed
-        </span>
-      </div>
-      <div className="p-4 space-y-3">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <div className="font-mono font-black text-[15px] text-[#111813]">#1042</div>
-            <div className="text-[11.5px] text-stone-400 mt-0.5">2 minutes ago</div>
-          </div>
-          <div className="text-right">
-            <div className="font-black text-[15px] text-[#006241] font-mono">Rs. 3,200</div>
-            <div className="text-[10.5px] font-bold text-amber-700 mt-0.5">COD</div>
-          </div>
-        </div>
-        <div className="border-t border-[#E7EBE7] pt-3 text-[12.5px] space-y-1">
-          <div className="font-bold text-[#111813]">Nadeesha Perera</div>
-          <div className="text-[#5A655D] font-mono text-[11.5px]">077 123 4567</div>
-          <div className="text-[#5A655D] leading-snug">Peplum top (M) × 1</div>
-        </div>
-        <button
-          type="button"
-          className="w-full py-2.5 bg-[#006241] text-white rounded-xl text-[12.5px] font-bold"
-        >
-          Send WhatsApp confirmation
-        </button>
-      </div>
-    </PhoneFrame>
-  );
-}
-
-function TrustWarningMock() {
-  return (
-    <PhoneFrame>
-      <div className="px-4 pt-4 pb-3 border-b border-[#E7EBE7] bg-rose-50/60 flex items-center justify-between">
-        <span className="text-[11px] font-black text-rose-800 uppercase tracking-wider">
-          Buyer check
-        </span>
-        <AlertTriangle className="w-4 h-4 text-rose-600" />
-      </div>
-      <div className="p-4 space-y-3">
-        <div className="border-2 border-rose-200 bg-rose-50 rounded-2xl p-3.5 space-y-2">
-          <div className="flex items-start gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-rose-100 flex items-center justify-center shrink-0">
-              <AlertTriangle className="w-4 h-4 text-rose-700" />
-            </div>
-            <div className="min-w-0">
-              <div className="text-[13px] font-black text-rose-900 leading-tight">
-                3 reports from 2 sellers
-              </div>
-              <div className="text-[11.5px] text-rose-700 mt-0.5">
-                Buyer has been flagged before
-              </div>
-            </div>
-          </div>
-          <div className="pt-2 border-t border-rose-200 text-[11.5px] space-y-1">
-            <div className="flex justify-between gap-3">
-              <span className="text-rose-700">Most common</span>
-              <span className="font-bold text-rose-900">Refused delivery</span>
-            </div>
-            <div className="flex justify-between gap-3">
-              <span className="text-rose-700">Last report</span>
-              <span className="font-bold text-rose-900">3 weeks ago</span>
-            </div>
-          </div>
-        </div>
-        <p className="text-[11px] text-[#5A655D] leading-relaxed">
-          Contributions from other Ordy sellers. Never shows who reported.
-        </p>
-      </div>
-    </PhoneFrame>
-  );
-}
-
-function PrintLabelMock() {
-  return (
-    <PhoneFrame>
-      <div className="px-4 pt-4 pb-3 border-b border-[#E7EBE7] bg-[#F4F6F4]/50 flex items-center justify-between">
-        <span className="text-[11px] font-black text-[#5A655D] uppercase tracking-wider">
-          Print layout
-        </span>
-        <Printer className="w-4 h-4 text-[#006241]" />
-      </div>
-      <div className="p-4">
-        <div className="border-2 border-[#111813] rounded-lg p-3 bg-white">
-          <div className="flex items-start justify-between gap-3 pb-2 border-b-2 border-[#111813]">
-            <div className="min-w-0">
-              <div className="font-black text-[12px] uppercase tracking-wide truncate">
-                Colombo Apparel
-              </div>
-              <div className="text-[9px] font-mono text-stone-500 truncate">/colombo-apparel</div>
-            </div>
-            <div className="text-right shrink-0">
-              <div className="font-mono font-black text-[14px]">#1042</div>
-              <div className="text-[9px] font-mono">02 Oct</div>
-            </div>
-          </div>
-          <div className="py-2 space-y-1 text-[11px] leading-snug">
-            <div>
-              <span className="font-bold">To:</span> Nadeesha Perera
-            </div>
-            <div className="font-mono">077 123 4567</div>
-            <div className="text-stone-600">No. 42, Temple Road, Peradeniya</div>
-            <div className="font-black uppercase text-[10.5px] pt-0.5">District: Kandy</div>
-          </div>
-          <div className="pt-2 border-t-2 border-[#111813] text-center">
-            <div className="text-[9px] font-black uppercase tracking-wider">
-              Cash on Delivery
-            </div>
-            <div className="font-mono font-black text-[15px] mt-0.5">Rs. 3,200</div>
-          </div>
-        </div>
-        <div className="mt-3 grid grid-cols-3 gap-1.5">
-          <button type="button" className="py-1.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-lg text-[10px] font-bold">A4 · 4-up</button>
-          <button type="button" className="py-1.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-lg text-[10px] font-bold">A6 · Thermal</button>
-          <button type="button" className="py-1.5 bg-[#F4F6F4] border border-[#E7EBE7] rounded-lg text-[10px] font-bold">Courier</button>
-        </div>
-      </div>
-    </PhoneFrame>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Page                                                               */
-/* ------------------------------------------------------------------ */
+/* ---------------- Page ---------------- */
 export default function Auth() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const [mode, setMode] = useState(params.get('mode') === 'login' ? 'login' : 'signup');
   const isSignup = mode === 'signup';
-
+  const [step, setStep] = useState(1);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [shopName, setShopName] = useState('');
   const [handle, setHandle] = useState('');
   const [handleTouched, setHandleTouched] = useState(false);
-  const [handleLocked, setHandleLocked] = useState(false);
+  const [editHandle, setEditHandle] = useState(false);
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [showBar, setShowBar] = useState(false);
   const formRef = useRef(null);
-
   useReveal();
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data?.session) navigate('/', { replace: true });
-    });
+    supabase.auth.getSession().then(({ data }) => { if (data?.session) navigate('/', { replace: true }); });
   }, [navigate]);
 
   useEffect(() => {
-    const prevTitle = document.title;
+    const prev = document.title;
     document.title = 'Ordy — Run your shop from one screen';
-
-    if (!document.getElementById('ordy-font-preconnect')) {
-      const pre1 = document.createElement('link');
-      pre1.id = 'ordy-font-preconnect';
-      pre1.rel = 'preconnect';
-      pre1.href = 'https://fonts.googleapis.com';
-      document.head.appendChild(pre1);
-
-      const pre2 = document.createElement('link');
-      pre2.rel = 'preconnect';
-      pre2.href = 'https://fonts.gstatic.com';
-      pre2.crossOrigin = 'anonymous';
-      document.head.appendChild(pre2);
-    }
-
     if (!document.getElementById('ordy-display-font')) {
-      const l = document.createElement('link');
-      l.id = 'ordy-display-font';
-      l.rel = 'stylesheet';
-      l.href =
-        'https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&display=swap';
+      const a = document.createElement('link'); a.rel = 'preconnect'; a.href = 'https://fonts.googleapis.com'; document.head.appendChild(a);
+      const b = document.createElement('link'); b.rel = 'preconnect'; b.href = 'https://fonts.gstatic.com'; b.crossOrigin = 'anonymous'; document.head.appendChild(b);
+      const l = document.createElement('link'); l.id = 'ordy-display-font'; l.rel = 'stylesheet';
+      l.href = 'https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&display=swap';
       document.head.appendChild(l);
     }
-
-    return () => {
-      document.title = prevTitle;
-    };
+    return () => { document.title = prev; };
   }, []);
 
   useEffect(() => {
     const el = formRef.current;
     if (!el || !('IntersectionObserver' in window)) return;
-    const io = new IntersectionObserver(([e]) => {
-      setShowBar(!e.isIntersecting && e.boundingClientRect.top < 0);
-    });
+    const io = new IntersectionObserver(([e]) => setShowBar(!e.isIntersecting && e.boundingClientRect.top < 0));
     io.observe(el);
     return () => io.disconnect();
   }, []);
 
-  const jumpTo = useCallback((nextMode) => {
-    setMode(nextMode);
-    setErrorMsg('');
-    setSuccessMsg('');
-    setPassword('');
-    setShowPw(false);
-    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const reset = () => { setErrorMsg(''); setSuccessMsg(''); setPassword(''); setShowPw(false); };
+  const switchMode = (m) => { setMode(m); setStep(1); reset(); };
+  const jumpTo = useCallback((m) => {
+    setMode(m); setStep(1); setErrorMsg(''); setSuccessMsg(''); setPassword(''); setShowPw(false);
+    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, []);
 
-  const switchMode = (nextMode) => {
-    setMode(nextMode);
-    setErrorMsg('');
-    setSuccessMsg('');
-    setPassword('');
-    setShowPw(false);
+  const onShopName = (v) => {
+    setShopName(v);
+    if (!handleTouched) setHandle(v.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 20));
   };
-
-  const scrollToDemo = () => {
-    document.getElementById('ordy-demo')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
+  const onHandle = (v) => { setHandleTouched(true); setHandle(v.toLowerCase().replace(/[^a-z0-9-_]/g, '')); };
 
   const handleLogin = async (e) => {
-    e.preventDefault();
-    setErrorMsg('');
-    setSuccessMsg('');
-    setLoading(true);
+    e.preventDefault(); reset(); setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: email.trim().toLowerCase(),
-        password,
-      });
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
       if (error) {
-        if (error.message?.toLowerCase().includes('invalid login')) {
-          throw new Error('Wrong email or password. Check both and try again.');
-        }
+        if (error.message?.toLowerCase().includes('invalid login')) throw new Error('Wrong email or password. Check both and try again.');
         throw new Error(error.message || 'Login failed.');
       }
       navigate('/');
-    } catch (err) {
-      setErrorMsg(err.message || 'Login failed.');
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { setErrorMsg(err.message || 'Login failed.'); } finally { setLoading(false); }
+  };
+
+  const nextStep = (e) => {
+    e.preventDefault(); setErrorMsg('');
+    const cleanHandle = handle.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '');
+    if (!isValidSLPhone(normalizeSLPhone(phone))) return setErrorMsg('Enter a valid 10-digit mobile number, like 0771234567.');
+    if (!cleanHandle) { setEditHandle(true); return setErrorMsg('Pick a shop link using letters or numbers, like colombo-apparel.'); }
+    setStep(2);
   };
 
   const handleRegister = async (e) => {
-    e.preventDefault();
-    setErrorMsg('');
-    setSuccessMsg('');
-    setLoading(true);
+    e.preventDefault(); setErrorMsg(''); setSuccessMsg(''); setLoading(true);
     try {
       const cleanEmail = email.trim().toLowerCase();
       const cleanHandle = handle.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '');
       const cleanPhone = normalizeSLPhone(phone);
+      if (!isValidSLPhone(cleanPhone)) throw new Error('Enter a valid 10-digit mobile number, like 0771234567.');
+      if (!cleanHandle) throw new Error('Pick a shop link using letters or numbers, like colombo-apparel.');
 
-      if (!isValidSLPhone(cleanPhone)) {
-        throw new Error('Enter a valid 10-digit Sri Lankan mobile number, like 0771234567.');
-      }
-      if (!cleanHandle) {
-        setHandleLocked(false);
-        throw new Error('Pick a store link using letters or numbers, like colombo-apparel.');
-      }
-
-      let handleTaken = false;
+      let taken = false;
       try {
-        const { data: existingSeller } = await supabase.rpc('get_public_seller', {
-          p_handle: cleanHandle,
-        });
-        handleTaken = Boolean(existingSeller?.id);
+        const { data: ex } = await supabase.rpc('get_public_seller', { p_handle: cleanHandle });
+        taken = Boolean(ex?.id);
       } catch { /* fall through */ }
+      if (taken) { setStep(1); setEditHandle(true); throw new Error('That shop link is already taken. Try another one.'); }
 
-      if (handleTaken) {
-        setHandleLocked(false);
-        throw new Error('That store link is already taken. Try another one.');
-      }
-
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: cleanEmail,
-        password,
-      });
+      const { data: authData, error: authError } = await supabase.auth.signUp({ email: cleanEmail, password });
       if (authError) {
-        if (authError.message?.toLowerCase().includes('already')) {
-          throw new Error('This email already has a shop. Use the Log in tab instead.');
-        }
+        if (authError.message?.toLowerCase().includes('already')) throw new Error('This email already has a shop. Use the Log in tab.');
         throw new Error(authError.message || 'Could not create your shop. Try again.');
       }
       if (!authData?.user) throw new Error('Could not create your shop. Try again.');
 
       await createSeller({
-        authUserId: authData.user.id,
-        shopName,
-        handle: cleanHandle,
-        email: cleanEmail,
-        whatsappNumber: cleanPhone,
-        monthlyFee: PRICE,
+        authUserId: authData.user.id, shopName, handle: cleanHandle, email: cleanEmail,
+        whatsappNumber: cleanPhone, monthlyFee: PRICE,
       });
 
       if (!authData.session) {
         setSuccessMsg('Check your email to confirm your account, then log in.');
-        setPassword('');
-        setShowPw(false);
-        setMode('login');
+        setPassword(''); setShowPw(false); setStep(1); setMode('login');
         return;
       }
       navigate('/');
     } catch (err) {
-      if (err.message?.includes('Shop handle') || err.message?.includes('store link')) {
-        setHandleLocked(false);
+      if (err.message?.includes('Shop handle') || err.message?.includes('shop link')) {
+        setStep(1); setEditHandle(true);
         try { await supabase.auth.signOut(); } catch { /* best effort */ }
       }
       setErrorMsg(err.message || 'Something went wrong. Try again.');
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
-  const onShopName = (val) => {
-    setShopName(val);
-    if (!handleTouched) {
-      setHandle(
-        val.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30)
-      );
-    }
-  };
-  const onHandle = (val) => {
-    setHandleTouched(true);
-    setHandle(val.toLowerCase().replace(/[^a-z0-9-_]/g, ''));
-  };
+  const PwField = (ac) => (
+    <div className="relative">
+      <input type={showPw ? 'text' : 'password'} name="password" required minLength={6} autoComplete={ac}
+        value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password (6+ letters)" className={`${inp} pr-12`} />
+      <button type="button" onClick={() => setShowPw((s) => !s)} aria-label={showPw ? 'Hide password' : 'Show password'}
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-500 hover:text-[#111813] p-1 cursor-pointer">
+        {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+      </button>
+    </div>
+  );
 
-  const showHandleInput = !handleLocked;
+  const Btn = ({ children, ...p }) => (
+    <button {...p} className="w-full py-3.5 bg-[#006241] hover:bg-[#004F34] text-white font-extrabold rounded-2xl text-[15px] transition flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-60 cursor-pointer shadow-[0_10px_24px_-10px_rgba(0,98,65,.7)]">{children}</button>
+  );
 
   return (
-    <div className="min-h-[100dvh] bg-[#F4F6F4] text-[#111813] font-sans select-text overflow-x-hidden relative">
+    <div className="min-h-[100dvh] bg-[#F4F6F4] text-[#111813] font-sans overflow-x-hidden">
       <style>{STYLES}</style>
 
-      <div
-        aria-hidden="true"
-        className="pointer-events-none fixed inset-0 z-0 overflow-hidden"
-      >
-        <div className="absolute -top-40 -right-40 w-[720px] h-[720px] rounded-full bg-[#006241] opacity-[0.05] blur-[130px]" />
-        <div className="absolute top-1/3 -left-48 w-[560px] h-[560px] rounded-full bg-[#F5B83D] opacity-[0.05] blur-[120px]" />
-        <div className="absolute -bottom-40 right-1/4 w-[640px] h-[640px] rounded-full bg-[#006241] opacity-[0.03] blur-[130px]" />
-      </div>
-
-      <div className="relative z-10">
-        <header className="sticky top-0 z-30 bg-[#F4F6F4]/90 backdrop-blur border-b border-[#E7EBE7]">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
-            <OrdyLogo size={32} />
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => jumpTo('login')}
-                className="text-[13px] font-bold px-3 py-2 rounded-full hover:bg-white transition cursor-pointer"
-              >
-                Log in
-              </button>
-              <button
-                type="button"
-                onClick={() => jumpTo('signup')}
-                className="text-[13px] font-bold px-4 py-2 rounded-full bg-[#006241] hover:bg-[#004F34] text-white transition cursor-pointer"
-              >
-                Start free
-              </button>
-            </div>
+      <header className="sticky top-0 z-30 bg-[#F4F6F4]/85 backdrop-blur border-b border-[#E3E8E3]">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+          <OrdyLogo size={32} />
+          <div className="flex items-center gap-1.5">
+            <button type="button" onClick={() => jumpTo('login')} className="text-[13px] font-bold px-3 py-2 rounded-full hover:bg-white transition cursor-pointer">Log in</button>
+            <button type="button" onClick={() => jumpTo('signup')} className="text-[13px] font-bold px-4 py-2 rounded-full bg-[#006241] hover:bg-[#004F34] text-white transition cursor-pointer">Start free</button>
           </div>
-        </header>
+        </div>
+      </header>
 
-        {/* ---------------- Hero ---------------- */}
-        <section className="max-w-6xl mx-auto px-4 sm:px-6 pt-10 sm:pt-16 pb-12 sm:pb-16 grid gap-10 lg:gap-x-14 lg:grid-cols-[1.08fr_0.92fr]">
-          <div className="lg:col-start-1 lg:row-start-1">
-            <h1
-              className="text-[40px] sm:text-6xl lg:text-[64px] font-extrabold tracking-tight leading-[1.02]"
-              style={{ fontFamily: DISPLAY }}
-            >
-              Run your whole shop{' '}
-              <span className="text-[#006241]">from one screen.</span>
+      {/* Hero */}
+      <section className="relative bg-[#003D29] text-white overflow-hidden">
+        <div className="o-grain absolute inset-0" aria-hidden="true" />
+        <div className="absolute -top-32 -right-24 w-[520px] h-[520px] rounded-full bg-[#F5B83D] opacity-[0.14] blur-[110px]" aria-hidden="true" />
+        <div className="relative max-w-6xl mx-auto px-4 sm:px-6 pt-8 sm:pt-14 pb-12 sm:pb-20 grid lg:grid-cols-[1.05fr_0.95fr] gap-8 lg:gap-14 items-center">
+          <div>
+            <h1 className="text-[38px] sm:text-6xl lg:text-[66px] font-extrabold tracking-tight leading-[1.02]" style={{ fontFamily: DISPLAY }}>
+              Stop chasing orders in DMs.
+              <span className="block text-[#F5B83D]">Let them come to you.</span>
             </h1>
-
-            <p className="mt-5 text-[16px] sm:text-lg text-[#3F4A42] leading-relaxed max-w-xl">
-              From the first DM to the delivered parcel — storefront, order pipeline, buyer trust,
-              print-ready labels and payment tracking. All from your phone.
+            <p className="mt-4 sm:mt-5 text-[16px] sm:text-lg text-white/80 leading-relaxed max-w-lg">
+              Make your own online shop in 1 minute. Buyers order by themselves, and you get everything ready to pack and send.
             </p>
-
-            <ul className="mt-6 flex flex-wrap gap-x-5 gap-y-2 text-[14px] font-semibold">
+            <ul className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-[14px] font-semibold">
               {[`${TRIAL_DAYS} days free`, 'No card needed', '0% commission'].map((t) => (
-                <li key={t} className="flex items-center gap-1.5">
-                  <Check className="w-4 h-4 text-[#006241]" strokeWidth={3} /> {t}
-                </li>
+                <li key={t} className="flex items-center gap-1.5"><Check className="w-4 h-4 text-[#F5B83D]" strokeWidth={3} />{t}</li>
               ))}
             </ul>
-
-            <button
-              type="button"
-              onClick={scrollToDemo}
-              className="mt-6 inline-flex items-center gap-1.5 text-[13px] font-bold text-[#006241] hover:text-[#004F34] transition group cursor-pointer"
-            >
-              See how it works
-              <ArrowDown className="w-3.5 h-3.5 group-hover:translate-y-0.5 transition-transform" />
-            </button>
+            <div className="hidden lg:block mt-10 relative h-[250px]">
+              <div className="o-float absolute left-0 top-0 w-[230px] bg-white text-[#111813] rounded-2xl p-3.5 shadow-2xl" style={{ '--r': '-3deg' }}>
+                <div className="flex items-center gap-2.5">
+                  <div className="o-ring w-9 h-9 rounded-xl bg-[#F5B83D] flex items-center justify-center"><Bell className="w-4 h-4" /></div>
+                  <div className="text-[12px] leading-tight"><b>New order! Rs. 3,200</b><div className="text-stone-500">Nadeesha · just now</div></div>
+                </div>
+              </div>
+              <div className="o-float absolute left-24 top-20 w-[250px] bg-white text-[#111813] rounded-2xl p-3.5 shadow-2xl" style={{ '--r': '2deg', animationDelay: '-2s' }}>
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-rose-100 flex items-center justify-center"><AlertTriangle className="w-4 h-4 text-rose-600" /></div>
+                  <div className="text-[12px] leading-tight"><b>Flagged buyer</b><div className="text-stone-500">3 reports from 2 sellers</div></div>
+                </div>
+              </div>
+              <div className="o-float absolute left-8 top-40 w-[240px] bg-white text-[#111813] rounded-2xl p-3.5 shadow-2xl" style={{ '--r': '-1deg', animationDelay: '-4s' }}>
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-[#E8F0E9] flex items-center justify-center"><Store className="w-4 h-4 text-[#006241]" /></div>
+                  <div className="text-[12px] leading-tight"><b>Your shop is live</b><div className="text-stone-500 font-mono">ordy.lk/colombo-apparel</div></div>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div ref={formRef} className="lg:col-start-2 lg:row-start-1 lg:row-span-2 scroll-mt-20">
-            <div className="bg-white border border-[#E7EBE7] rounded-[28px] p-5 sm:p-6 shadow-[0_18px_50px_-24px_rgba(0,98,65,0.35)] lg:sticky lg:top-20">
-              <div
-                role="tablist"
-                className="grid grid-cols-2 bg-[#F4F6F4] rounded-full p-1 text-[13px] font-bold mb-5"
-              >
+          {/* Form */}
+          <div ref={formRef} className="scroll-mt-20 min-w-0">
+            <div className="bg-white text-[#111813] rounded-[28px] p-5 sm:p-6 shadow-[0_30px_80px_-30px_rgba(0,0,0,.6)] min-w-0">
+              <div role="tablist" className="grid grid-cols-2 bg-[#F4F6F4] rounded-full p-1 text-[13px] font-bold mb-4">
                 {[['signup', 'Start free'], ['login', 'Log in']].map(([m, label]) => (
-                  <button
-                    key={m}
-                    role="tab"
-                    type="button"
-                    aria-selected={mode === m}
-                    onClick={() => switchMode(m)}
-                    className={`py-2.5 rounded-full transition cursor-pointer ${
-                      mode === m ? 'bg-white shadow-sm text-[#006241]' : 'text-[#5A655D]'
-                    }`}
-                  >
-                    {label}
-                  </button>
+                  <button key={m} role="tab" type="button" aria-selected={mode === m} onClick={() => switchMode(m)}
+                    className={`py-2 rounded-full transition cursor-pointer ${mode === m ? 'bg-white shadow-sm text-[#006241]' : 'text-stone-500'}`}>{label}</button>
                 ))}
               </div>
 
-              <div className="flex items-start justify-between gap-3 mb-5">
+              <div className="flex items-center justify-between gap-3 mb-4">
                 <div>
-                  <h2
-                    className="text-xl font-extrabold leading-tight"
-                    style={{ fontFamily: DISPLAY }}
-                  >
-                    {isSignup ? 'Open your shop in a minute' : 'Welcome back'}
+                  <h2 className="text-xl font-extrabold leading-tight" style={{ fontFamily: DISPLAY }}>
+                    {isSignup ? (step === 1 ? 'Make your shop' : 'Almost done') : 'Welcome back'}
                   </h2>
-                  <p className="text-[13px] text-[#5A655D] mt-1">
-                    {isSignup
-                      ? 'No card. No commitment. Just try it.'
-                      : 'Log in to see your orders.'}
+                  <p className="text-[13px] text-stone-500 mt-0.5">
+                    {isSignup ? (step === 1 ? 'Step 1 of 2 · takes 30 seconds' : 'Step 2 of 2 · your login') : 'Log in to see your orders.'}
                   </p>
                 </div>
-                {isSignup && (
-                  <span className="shrink-0 text-[11px] font-extrabold bg-[#F5B83D] text-[#111813] px-2.5 py-1 rounded-full">
-                    {TRIAL_DAYS} days free
-                  </span>
-                )}
+                {isSignup && <span className="shrink-0 text-[11px] font-extrabold bg-[#F5B83D] px-2.5 py-1 rounded-full">{TRIAL_DAYS} days free</span>}
               </div>
 
+              {isSignup && <div className="h-1.5 bg-[#F4F6F4] rounded-full mb-4 overflow-hidden"><div className="h-full bg-[#006241] rounded-full transition-all duration-500" style={{ width: step === 1 ? '50%' : '100%' }} /></div>}
+
               {errorMsg && (
-                <div
-                  role="alert"
-                  className="mb-4 bg-rose-50 border border-rose-200 text-rose-800 text-[13px] px-3.5 py-2.5 rounded-2xl flex items-start gap-2"
-                >
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>{errorMsg}</span>
+                <div role="alert" className="mb-3 bg-rose-50 border border-rose-200 text-rose-800 text-[13px] px-3.5 py-2.5 rounded-2xl flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /><span>{errorMsg}</span>
                 </div>
               )}
               {successMsg && (
-                <div
-                  role="status"
-                  className="mb-4 bg-[#E8F0E9] border border-[#C2D6C5] text-[#006241] text-[13px] px-3.5 py-2.5 rounded-2xl flex items-start gap-2"
-                >
-                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>{successMsg}</span>
+                <div role="status" className="mb-3 bg-[#E8F0E9] border border-[#C2D6C5] text-[#006241] text-[13px] px-3.5 py-2.5 rounded-2xl flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" /><span>{successMsg}</span>
                 </div>
               )}
 
-              {isSignup ? (
-                <form onSubmit={handleRegister} className="space-y-4">
-                  <div className="space-y-3.5">
-                    <div className="text-[11px] font-black text-[#5A655D] uppercase tracking-wider">
-                      Your shop
-                    </div>
-
-                    <Field label="Shop name">
-                      <input
-                        id="shop-name"
-                        type="text"
-                        name="shop_name"
-                        required
-                        autoComplete="organization"
-                        value={shopName}
-                        onChange={(e) => onShopName(e.target.value)}
-                        placeholder="e.g. Colombo Apparel"
-                        className={`${inputCls} font-semibold`}
-                      />
-                    </Field>
-
-                    <Field
-                      label="WhatsApp number"
-                      hint="Only used for order alerts. Never shared or sold."
-                    >
-                      <input
-                        type="tel"
-                        name="phone"
-                        required
-                        autoComplete="tel"
-                        inputMode="tel"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder="0771234567"
-                        className={`${inputCls} font-semibold font-mono`}
-                      />
-                    </Field>
-
-                    <div>
-                      <span className="block text-[13px] font-semibold mb-1.5">
-                        Your store link
-                      </span>
-                      {showHandleInput ? (
-                        <div className="flex items-center bg-[#F4F6F4] border border-[#E7EBE7] focus-within:border-[#006241] focus-within:bg-white rounded-xl px-3.5 py-2.5 sm:py-3 text-[14px] transition">
-                          <span className="text-[#5A655D] select-none">
-                            {window.location.host}/
-                          </span>
-                          <input
-                            type="text"
-                            name="handle"
-                            required
-                            autoComplete="off"
-                            aria-label="Store link"
-                            value={handle}
-                            onChange={(e) => onHandle(e.target.value)}
-                            onFocus={() => setHandleLocked(false)}
-                            onBlur={() => {
-                              if (handle.trim()) setHandleLocked(true);
-                            }}
-                            placeholder="colombo-apparel"
-                            className="flex-1 min-w-0 bg-transparent font-bold outline-none select-text"
-                          />
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-between gap-2 bg-[#E8F0E9] rounded-xl px-3.5 py-2.5 sm:py-3 text-[14px]">
-                          <span className="truncate">
-                            <span className="text-[#5A655D]">{window.location.host}/</span>
-                            <span className="font-bold text-[#006241]">{handle}</span>
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setHandleLocked(false)}
-                            className="text-[12px] font-bold text-[#006241] underline underline-offset-2 shrink-0 cursor-pointer"
-                          >
-                            Edit
-                          </button>
-                        </div>
-                      )}
-                      <span className="block text-[11.5px] text-[#5A655D] mt-1.5 leading-snug">
-                        The link you'll share with buyers. We made it from your shop name.
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3.5 pt-3 border-t border-[#E7EBE7]">
-                    <div className="text-[11px] font-black text-[#5A655D] uppercase tracking-wider">
-                      Your login
-                    </div>
-
-                    <Field
-                      label="Email"
-                      hint="Any email works — Gmail, Yahoo, your own. We don't send a confirmation email."
-                    >
-                      <input
-                        type="email"
-                        name="email"
-                        required
-                        autoComplete="username"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="myshop@gmail.com"
-                        className={inputCls}
-                      />
-                    </Field>
-
-                    <Field label="Password" hint="At least 6 characters. Pick one you'll remember.">
-                      <div className="relative">
-                        <input
-                          type={showPw ? 'text' : 'password'}
-                          name="password"
-                          required
-                          minLength={6}
-                          autoComplete="new-password"
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          placeholder="Your password"
-                          className={`${inputCls} pr-14`}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPw((s) => !s)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5A655D] hover:text-[#111813] cursor-pointer p-1"
-                          aria-label={showPw ? 'Hide password' : 'Show password'}
-                        >
-                          {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      </div>
-                    </Field>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full py-3.5 bg-[#006241] hover:bg-[#004F34] text-white font-extrabold rounded-2xl text-[15px] transition flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-60 cursor-pointer"
-                  >
-                    {loading ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
+              {isSignup && step === 1 && (
+                <form onSubmit={nextStep} className="space-y-3">
+                  <input type="text" name="shop_name" required autoComplete="organization" value={shopName} onChange={(e) => onShopName(e.target.value)}
+                    placeholder="Shop name  (e.g. Colombo Apparel)" aria-label="Shop name" className={`${inp} font-semibold`} />
+                  <input type="tel" name="phone" required autoComplete="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)}
+                    placeholder="WhatsApp number  (0771234567)" aria-label="WhatsApp number" className={`${inp} font-semibold font-mono`} />
+                  <div className="flex items-center gap-2 bg-[#E8F0E9] rounded-xl px-3.5 py-2.5 text-[13px] min-h-[44px] min-w-0">
+                    {editHandle ? (
+                      <>
+                        <span className="text-stone-500 shrink-0">{window.location.host}/</span>
+                        <input autoFocus type="text" required aria-label="Shop link" value={handle} onChange={(e) => onHandle(e.target.value)}
+                          onBlur={() => handle.trim() && setEditHandle(false)} className="flex-1 min-w-0 bg-transparent font-bold outline-none" />
+                      </>
                     ) : (
-                      `Start my ${TRIAL_DAYS}-day free trial`
+                      <>
+                        <span className="flex-1 min-w-0 truncate"><span className="text-stone-500">Your link: {window.location.host}/</span><b className="text-[#006241]">{handle || 'your-shop'}</b></span>
+                        <button type="button" onClick={() => setEditHandle(true)} className="ml-auto shrink-0 flex items-center gap-1 text-[12px] font-bold text-[#006241] cursor-pointer"><Pencil className="w-3 h-3" />Edit</button>
+                      </>
                     )}
-                  </button>
-
-                  <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-[11.5px] font-semibold text-[#5A655D]">
-                    <span className="flex items-center gap-1">
-                      <Check className="w-3.5 h-3.5 text-[#006241]" strokeWidth={3} />
-                      No card
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Check className="w-3.5 h-3.5 text-[#006241]" strokeWidth={3} />
-                      Nothing auto-charges
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Check className="w-3.5 h-3.5 text-[#006241]" strokeWidth={3} />
-                      Cancel any time
-                    </span>
                   </div>
-
-                  <p className="text-[12px] text-[#5A655D] text-center leading-snug">
-                    After your trial it's Rs. {fmt(PRICE)}/month — only if you decide to continue.
-                  </p>
+                  <Btn type="submit">Next <ArrowRight className="w-4 h-4" /></Btn>
+                  <p className="text-[11.5px] text-stone-500 text-center">We only use your number for order alerts. Never shared.</p>
                 </form>
-              ) : (
-                <form onSubmit={handleLogin} className="space-y-4">
-                  <Field label="Email">
-                    <input
-                      type="email"
-                      name="email"
-                      required
-                      autoComplete="username"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="myshop@gmail.com"
-                      className={inputCls}
-                    />
-                  </Field>
-                  <Field label="Password">
-                    <div className="relative">
-                      <input
-                        type={showPw ? 'text' : 'password'}
-                        name="password"
-                        required
-                        autoComplete="current-password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="Your password"
-                        className={`${inputCls} pr-14`}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPw((s) => !s)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5A655D] hover:text-[#111813] cursor-pointer p-1"
-                        aria-label={showPw ? 'Hide password' : 'Show password'}
-                      >
-                        {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </Field>
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full py-3.5 bg-[#006241] hover:bg-[#004F34] text-white font-extrabold rounded-2xl text-[15px] transition flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-60 cursor-pointer"
-                  >
-                    {loading ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                    ) : (
-                      'Log in to my shop'
-                    )}
-                  </button>
-                  <p className="text-[12px] text-[#5A655D] text-center">
-                    New here?{' '}
-                    <button
-                      type="button"
-                      onClick={() => switchMode('signup')}
-                      className="font-bold text-[#006241] underline underline-offset-2 cursor-pointer"
-                    >
-                      Start your free trial
-                    </button>
-                  </p>
-                  <p className="text-[11.5px] text-[#5A655D] text-center leading-relaxed">
-                    Forgot your password?{' '}
-                    <a
-                      href={WA_HELP}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-bold text-[#006241] hover:underline"
-                    >
-                      Message us on WhatsApp
-                    </a>{' '}
-                    and we'll help you back in.
+              )}
+
+              {isSignup && step === 2 && (
+                <form onSubmit={handleRegister} className="space-y-3">
+                  <input type="email" name="email" required autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)}
+                    placeholder="Email  (myshop@gmail.com)" aria-label="Email" className={inp} />
+                  {PwField('new-password')}
+                  <Btn type="submit" disabled={loading}>
+                    {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : `Open my shop`}
+                  </Btn>
+                  <button type="button" onClick={() => { setStep(1); setErrorMsg(''); }} className="w-full text-[13px] font-bold text-stone-500 hover:text-[#111813] flex items-center justify-center gap-1 cursor-pointer"><ArrowLeft className="w-3.5 h-3.5" />Back</button>
+                  <p className="text-[11.5px] text-stone-500 text-center leading-snug">No card. Nothing auto-charges. After {TRIAL_DAYS} days it's Rs. {fmt(PRICE)}/month, only if you continue.</p>
+                </form>
+              )}
+
+              {!isSignup && (
+                <form onSubmit={handleLogin} className="space-y-3">
+                  <input type="email" name="email" required autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)}
+                    placeholder="Email" aria-label="Email" className={inp} />
+                  {PwField('current-password')}
+                  <Btn type="submit" disabled={loading}>{loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Log in to my shop'}</Btn>
+                  <p className="text-[12px] text-stone-500 text-center">
+                    Forgot password? <a href={WA_HELP} target="_blank" rel="noopener noreferrer" className="font-bold text-[#006241] hover:underline">Message us on WhatsApp</a>
                   </p>
                 </form>
               )}
             </div>
           </div>
+        </div>
+      </section>
 
-          <div id="ordy-demo" className="lg:col-start-1 lg:row-start-2 ordy-reveal scroll-mt-20">
-            <DmToOrder />
+      {/* Problem -> solution */}
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-24 o-rev">
+        <h2 className="text-3xl sm:text-5xl font-extrabold tracking-tight max-w-2xl leading-[1.05]" style={{ fontFamily: DISPLAY }}>
+          One order. Ten messages. Or one clean screen.
+        </h2>
+        <p className="mt-4 text-[#4B564E] text-[16px] max-w-lg">Selling on WhatsApp and Instagram is tiring. Ordy makes the buyer do the typing.</p>
+        <div className="mt-9"><DmToOrder /></div>
+      </section>
+
+      <div className="bg-white border-y border-[#E3E8E3]"><Showcase /></div>
+
+      {/* Steps */}
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-24 o-rev">
+        <h2 className="text-3xl sm:text-5xl font-extrabold tracking-tight leading-[1.05]" style={{ fontFamily: DISPLAY }}>Start selling in 3 easy steps.</h2>
+        <ol className="mt-9 grid md:grid-cols-3 gap-4">
+          {[['Make your shop', 'Type your shop name and WhatsApp number. That is all.', Store], ['Share your link', 'Put it in your Instagram bio, story or WhatsApp status.', MessageCircle], ['Pack and send', 'Orders arrive complete. Print the label and hand to the courier.', Truck]].map(([t, b, Ic], k) => (
+            <li key={t} className="relative bg-white border border-[#E3E8E3] rounded-3xl p-6 overflow-hidden">
+              <span className="absolute -top-3 right-4 text-[96px] font-black leading-none text-[#006241] opacity-[0.07]" style={{ fontFamily: DISPLAY }} aria-hidden="true">{k + 1}</span>
+              <div className="w-11 h-11 rounded-2xl bg-[#E8F0E9] text-[#006241] flex items-center justify-center mb-4"><Ic className="w-5 h-5" /></div>
+              <h3 className="font-extrabold text-[18px]" style={{ fontFamily: DISPLAY }}>{t}</h3>
+              <p className="text-[14.5px] text-[#4B564E] mt-2 leading-relaxed">{b}</p>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      {/* Pricing */}
+      <section className="relative bg-[#003D29] text-white overflow-hidden">
+        <div className="o-grain absolute inset-0" aria-hidden="true" />
+        <div className="relative max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-24 grid md:grid-cols-2 gap-10 items-center o-rev">
+          <div>
+            <p className="inline-block bg-[#F5B83D] text-[#111813] text-[12px] font-extrabold px-3 py-1 rounded-full">Launch offer: price stays the same for life</p>
+            <div className="mt-4 flex items-baseline gap-2 flex-wrap">
+              <span className="text-6xl sm:text-7xl font-extrabold tracking-tight" style={{ fontFamily: DISPLAY }}>Rs. {fmt(PRICE)}</span>
+              <span className="text-lg text-white/75">a month</span>
+              <span className="text-lg text-white/50 line-through">Rs. {fmt(STANDARD_PRICE)}</span>
+            </div>
+            <p className="mt-4 text-[16px] text-white/85 max-w-md leading-relaxed">First {TRIAL_DAYS} days are free. No card, no auto-charge. Join during launch and this price never goes up.</p>
+            <button type="button" onClick={() => jumpTo('signup')} className="mt-7 px-6 py-3.5 rounded-2xl bg-[#F5B83D] hover:bg-[#E5A82D] text-[#111813] font-extrabold text-[15px] transition active:scale-[0.98] cursor-pointer">Start my {TRIAL_DAYS}-day free trial</button>
           </div>
-        </section>
-
-        {/* ---------------- Trust strip ---------------- */}
-        <section className="border-y border-[#E7EBE7] bg-white/60">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6">
-            {[
-              [Lock, 'No card needed', 'Start without sharing payment details'],
-              [Store, 'No forced charges', 'Nothing bills you without your say-so'],
-              [ShieldCheck, '0% commission', 'Your sales stay your sales'],
-              [MessageCircle, 'Real human support', 'WhatsApp us any time'],
-            ].map(([Icon, title, body]) => (
-              <div key={title} className="flex items-start gap-3">
-                <div className="w-9 h-9 rounded-xl bg-[#E8F0E9] text-[#006241] flex items-center justify-center shrink-0">
-                  <Icon className="w-4 h-4" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-[13px] font-extrabold leading-tight">{title}</div>
-                  <div className="text-[11.5px] text-[#5A655D] mt-0.5 leading-snug">{body}</div>
-                </div>
-              </div>
+          <ul className="space-y-3.5 text-[16px]">
+            {['Every feature included', '0% commission on your sales', 'Your own shop link', 'Order alerts on your phone', 'Pay by simple bank transfer', 'Stop any time'].map((t) => (
+              <li key={t} className="flex items-center gap-3"><span className="w-6 h-6 rounded-full bg-white/15 flex items-center justify-center shrink-0"><Check className="w-3.5 h-3.5" strokeWidth={3} /></span>{t}</li>
             ))}
-          </div>
-        </section>
+          </ul>
+        </div>
+      </section>
 
-        {/* ---------------- Who it's for ---------------- */}
-        <section className="max-w-6xl mx-auto px-4 sm:px-6 py-14 sm:py-20 ordy-reveal">
-          <h2
-            className="text-3xl sm:text-4xl font-extrabold tracking-tight max-w-2xl"
-            style={{ fontFamily: DISPLAY }}
-          >
-            If you sell it on WhatsApp or Instagram, Ordy handles the orders.
-          </h2>
-          <div className="mt-7 flex flex-wrap gap-2">
-            {SELLERS.map(([emoji, label]) => (
-              <span
-                key={label}
-                className="bg-white border border-[#E7EBE7] rounded-full px-3.5 py-2 text-[14px] font-semibold flex items-center gap-2"
-              >
-                <span aria-hidden="true">{emoji}</span>
-                {label}
-              </span>
-            ))}
-            <span className="px-3.5 py-2 text-[14px] font-semibold text-[#5A655D]">
-              …and anything else you sell.
-            </span>
-          </div>
-        </section>
+      {/* FAQ */}
+      <section className="max-w-3xl mx-auto px-4 sm:px-6 py-16 sm:py-24 o-rev">
+        <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight" style={{ fontFamily: DISPLAY }}>Questions sellers ask</h2>
+        <div className="mt-7">
+          {FAQ.map(([q, a]) => (
+            <details key={q} className="border-t border-[#D9DFD9] last:border-b">
+              <summary className="flex items-center justify-between gap-4 py-4 cursor-pointer font-bold text-[16px]">{q}<Plus className="o-plus w-5 h-5 text-[#006241] shrink-0" /></summary>
+              <p className="pb-5 -mt-1 text-[15px] text-[#4B564E] leading-relaxed pr-8">{a}</p>
+            </details>
+          ))}
+        </div>
+      </section>
 
-        {/* ---------------- How it works ---------------- */}
-        <section id="how-it-works" className="bg-white border-y border-[#E7EBE7]">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-14 sm:py-20 ordy-reveal">
-            <h2
-              className="text-3xl sm:text-4xl font-extrabold tracking-tight"
-              style={{ fontFamily: DISPLAY }}
-            >
-              Live in three steps.
-            </h2>
-            <ol className="mt-7 grid md:grid-cols-3 gap-5">
-              {STEPS.map(([title, body], i) => {
-                const Icon = STEP_ICONS[i] || Store;
-                return (
-                  <li
-                    key={title}
-                    className="relative bg-[#F4F6F4] border border-[#E7EBE7] rounded-3xl p-5 sm:p-6 overflow-hidden hover:border-[#006241]/30 transition"
-                  >
-                    <span
-                      className="absolute -top-2 right-3 text-[88px] font-black leading-none select-none pointer-events-none"
-                      style={{ fontFamily: DISPLAY, color: '#006241', opacity: 0.08 }}
-                      aria-hidden="true"
-                    >
-                      {i + 1}
-                    </span>
+      {/* Final CTA */}
+      <section className="px-4 sm:px-6 pb-16 sm:pb-24">
+        <div className="max-w-5xl mx-auto bg-[#006241] text-white rounded-[2rem] px-6 py-14 text-center">
+          <h2 className="text-3xl sm:text-5xl font-extrabold tracking-tight leading-tight max-w-2xl mx-auto" style={{ fontFamily: DISPLAY }}>Your shop can be live in 1 minute.</h2>
+          <p className="mt-3 text-white/80">{TRIAL_DAYS} days free. No card. Start from your phone.</p>
+          <button type="button" onClick={() => jumpTo('signup')} className="mt-7 px-7 py-3.5 rounded-2xl bg-[#F5B83D] hover:bg-[#E5A82D] text-[#111813] font-extrabold text-[15px] transition active:scale-[0.98] cursor-pointer">Start free</button>
+        </div>
+      </section>
 
-                    <div className="relative">
-                      <div className="w-11 h-11 rounded-2xl bg-white border border-[#E7EBE7] text-[#006241] flex items-center justify-center shadow-xs mb-4">
-                        <Icon className="w-5 h-5" />
-                      </div>
-                      <div className="text-[10.5px] font-black uppercase tracking-wider text-[#006241]/70 mb-1.5">
-                        Step 0{i + 1}
-                      </div>
-                      <h3 className="font-extrabold text-[17px] leading-tight">{title}</h3>
-                      <p className="text-[14px] text-[#5A655D] mt-2 leading-relaxed">{body}</p>
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
-          </div>
-        </section>
+      <footer className="border-t border-[#E3E8E3] bg-white">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 pb-28 lg:pb-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-[13px] text-stone-500">
+          <OrdyLogo size={28} />
+          <a href={WA_HELP} target="_blank" rel="noopener noreferrer" className="font-bold text-[#006241] hover:underline">Questions? WhatsApp us</a>
+          <span>© {new Date().getFullYear()} Ordy</span>
+        </div>
+      </footer>
 
-        {/* ---------------- Feature row 1: Order arrived ---------------- */}
-        <section className="max-w-6xl mx-auto px-4 sm:px-6 py-14 sm:py-20">
-          <div className="grid md:grid-cols-2 gap-10 md:gap-14 items-center ordy-reveal">
-            <div className="order-2 md:order-1">
-              <div className="text-[12px] font-black text-[#006241] uppercase tracking-widest mb-3">
-                Orders in one place
-              </div>
-              <h2
-                className="text-2xl sm:text-3xl font-extrabold tracking-tight leading-tight"
-                style={{ fontFamily: DISPLAY }}
-              >
-                Every order lands on one screen. Nothing slips through.
-              </h2>
-              <p className="text-[15px] text-[#5A655D] mt-4 leading-relaxed">
-                Every new order arrives with the buyer's name, phone, address and items already
-                filled in. You get a live alert the moment it lands, and a clear list of what needs
-                action — verify, pack, dispatch, done.
-              </p>
-              <ul className="mt-5 space-y-2.5 text-[14px]">
-                {[
-                  'Buyer fills their own address at checkout',
-                  'Live notifications on your phone',
-                  'Sort by what needs action today',
-                ].map((t) => (
-                  <li key={t} className="flex items-start gap-2.5">
-                    <Check className="w-4 h-4 text-[#006241] mt-0.5 shrink-0" strokeWidth={3} />
-                    <span>{t}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div className="order-1 md:order-2 max-w-sm mx-auto w-full">
-              <OrderReceivedMock />
-            </div>
-          </div>
-        </section>
-
-        {/* ---------------- Feature row 2: Buyer trust ---------------- */}
-        <section className="bg-white border-y border-[#E7EBE7]">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-14 sm:py-20">
-            <div className="grid md:grid-cols-2 gap-10 md:gap-14 items-center ordy-reveal">
-              <div className="max-w-sm mx-auto w-full md:order-1">
-                <TrustWarningMock />
-              </div>
-              <div className="md:order-2">
-                <div className="text-[12px] font-black text-[#006241] uppercase tracking-widest mb-3">
-                  Your unfair advantage
-                </div>
-                <h2
-                  className="text-2xl sm:text-3xl font-extrabold tracking-tight leading-tight"
-                  style={{ fontFamily: DISPLAY }}
-                >
-                  Know who's worth shipping to — before you dispatch.
-                </h2>
-                <p className="text-[15px] text-[#5A655D] mt-4 leading-relaxed">
-                  Before you pack a COD parcel, Ordy quietly checks the buyer's number against
-                  warnings left by other sellers. No names, no drama — just an anonymous heads-up so
-                  you can decide.
-                </p>
-                <ul className="mt-5 space-y-2.5 text-[14px]">
-                  {[
-                    'Anonymous — never shows who reported',
-                    'Reasons, count and recency at a glance',
-                    'Automatic, no extra steps for you',
-                  ].map((t) => (
-                    <li key={t} className="flex items-start gap-2.5">
-                      <Check className="w-4 h-4 text-[#006241] mt-0.5 shrink-0" strokeWidth={3} />
-                      <span>{t}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* ---------------- Feature row 3: Print ---------------- */}
-        <section className="max-w-6xl mx-auto px-4 sm:px-6 py-14 sm:py-20">
-          <div className="grid md:grid-cols-2 gap-10 md:gap-14 items-center ordy-reveal">
-            <div className="order-2 md:order-1">
-              <div className="text-[12px] font-black text-[#006241] uppercase tracking-widest mb-3">
-                Print and dispatch
-              </div>
-              <h2
-                className="text-2xl sm:text-3xl font-extrabold tracking-tight leading-tight"
-                style={{ fontFamily: DISPLAY }}
-              >
-                Labels ready before the courier arrives.
-              </h2>
-              <p className="text-[15px] text-[#5A655D] mt-4 leading-relaxed">
-                Print shipping labels on plain A4, thermal stickers, or export a courier handover
-                sheet as CSV. No laptop required — works straight from your phone.
-              </p>
-              <ul className="mt-5 space-y-2.5 text-[14px]">
-                {[
-                  'A4 4-up, A4 8-up, thermal A6',
-                  'Courier manifest with rider signature',
-                  'CSV export for any courier service',
-                ].map((t) => (
-                  <li key={t} className="flex items-start gap-2.5">
-                    <Check className="w-4 h-4 text-[#006241] mt-0.5 shrink-0" strokeWidth={3} />
-                    <span>{t}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div className="order-1 md:order-2 max-w-sm mx-auto w-full">
-              <PrintLabelMock />
-            </div>
-          </div>
-        </section>
-
-        {/* ---------------- Compact feature grid ---------------- */}
-        <section className="bg-white border-y border-[#E7EBE7]">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-14 sm:py-20 ordy-reveal">
-            <h2
-              className="text-2xl sm:text-3xl font-extrabold tracking-tight max-w-xl"
-              style={{ fontFamily: DISPLAY }}
-            >
-              And the small things that make big differences.
-            </h2>
-            <div className="mt-8 grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {[
-                [Store, 'Your own store link', 'One link for WhatsApp, Instagram and Facebook. Buyers browse, add to cart and check out.'],
-                [Truck, 'Sri Lanka checkout', 'District picker, COD or bank transfer, delivery fees, free-delivery threshold.'],
-                [MessageCircle, 'One-tap updates', 'Confirm, dispatch, follow up — with a ready-made WhatsApp message.'],
-                [Smartphone, 'Works like an app', 'Add it to your home screen. Fast on any phone, no download from a store.'],
-                [Package, 'Full order history', 'Search by phone, name or order number. Export everything to CSV any time.'],
-                [Share2, 'Instant order links', 'Type an item and price, send the link. Buyer fills their own details.'],
-              ].map(([Icon, title, body]) => (
-                <div
-                  key={title}
-                  className="border border-[#E7EBE7] rounded-2xl p-5 hover:border-[#006241]/40 transition"
-                >
-                  <div className="w-9 h-9 rounded-xl bg-[#E8F0E9] text-[#006241] flex items-center justify-center mb-3">
-                    <Icon className="w-4 h-4" />
-                  </div>
-                  <h3 className="font-extrabold text-[14px]">{title}</h3>
-                  <p className="text-[13px] text-[#5A655D] mt-1 leading-relaxed">{body}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* ---------------- Pricing ---------------- */}
-        <section className="bg-[#006241] text-white">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-20 grid md:grid-cols-2 gap-10 items-center ordy-reveal">
-            <div>
-              <p className="text-[13px] font-black uppercase tracking-widest text-white/70">
-                Launch offer · price locked for life
-              </p>
-              <div className="mt-3 flex items-baseline gap-2 flex-wrap">
-                <span
-                  className="text-6xl sm:text-7xl font-extrabold tracking-tight"
-                  style={{ fontFamily: DISPLAY }}
-                >
-                  Rs. {fmt(PRICE)}
-                </span>
-                <span className="text-lg font-semibold text-white/80">a month</span>
-              </div>
-              <p className="mt-4 text-[16px] leading-relaxed text-white/90 max-w-md">
-                Free for your first {TRIAL_DAYS} days, then Rs. {fmt(PRICE)}/month — yours forever
-                if you join during launch. Standard price is Rs. {fmt(STANDARD_PRICE)}. No card, no
-                auto-charge, no questions asked.
-              </p>
-              <button
-                type="button"
-                onClick={() => jumpTo('signup')}
-                className="mt-7 px-6 py-3.5 rounded-2xl bg-[#F5B83D] hover:bg-[#E5A82D] text-[#111813] font-extrabold text-[15px] transition active:scale-[0.98] cursor-pointer"
-              >
-                Start my {TRIAL_DAYS}-day free trial
-              </button>
-            </div>
-            <ul className="space-y-3.5 text-[16px]">
-              {[
-                'Every feature included',
-                '0% commission on your sales',
-                'Price locked in for life',
-                'No card needed to start',
-                'Renew by simple bank transfer',
-                'Stop any time, no contract',
-              ].map((t) => (
-                <li key={t} className="flex items-center gap-3">
-                  <span className="w-6 h-6 rounded-full bg-white/15 flex items-center justify-center shrink-0">
-                    <Check className="w-3.5 h-3.5" strokeWidth={3} />
-                  </span>
-                  {t}
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
-
-        {/* ---------------- FAQ ---------------- */}
-        <section className="max-w-3xl mx-auto px-4 sm:px-6 py-16 sm:py-20 ordy-reveal">
-          <h2
-            className="text-3xl sm:text-4xl font-extrabold tracking-tight"
-            style={{ fontFamily: DISPLAY }}
-          >
-            Questions sellers ask.
-          </h2>
-          <div className="mt-7">
-            {FAQ.map(([q, a]) => (
-              <details key={q} className="group border-t border-[#D9DFD9] last:border-b">
-                <summary className="flex items-center justify-between gap-4 py-4 cursor-pointer font-bold text-[16px]">
-                  {q}
-                  <Plus className="ordy-plus w-5 h-5 text-[#006241] shrink-0" />
-                </summary>
-                <p className="pb-5 -mt-1 text-[15px] text-[#5A655D] leading-relaxed pr-8">{a}</p>
-              </details>
-            ))}
-          </div>
-        </section>
-
-        {/* ---------------- Final CTA ---------------- */}
-        <section className="bg-[#F4F6F4] border-t border-[#E7EBE7]">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-20 text-center">
-            <h2
-              className="text-3xl sm:text-5xl font-extrabold tracking-tight max-w-2xl mx-auto leading-tight"
-              style={{ fontFamily: DISPLAY }}
-            >
-              Your first order link is{' '}
-              <span className="text-[#006241]">one minute away.</span>
-            </h2>
-            <p className="mt-4 text-[#5A655D] text-[16px] max-w-lg mx-auto">
-              {TRIAL_DAYS} days free. No card. Set up from your phone.
-            </p>
-            <button
-              type="button"
-              onClick={() => jumpTo('signup')}
-              className="mt-7 px-7 py-3.5 rounded-2xl bg-[#006241] hover:bg-[#004F34] text-white font-extrabold text-[15px] transition active:scale-[0.98] cursor-pointer"
-            >
-              Start my {TRIAL_DAYS}-day free trial
-            </button>
-          </div>
-        </section>
-
-        {/* ---------------- Footer ---------------- */}
-        <footer className="border-t border-[#E7EBE7] bg-white">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 pb-28 lg:pb-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-[13px] text-[#5A655D]">
-            <OrdyLogo size={28} />
-            <a
-              href={WA_HELP}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-bold text-[#006241] hover:underline"
-            >
-              Questions? WhatsApp us
-            </a>
-            <span>© {new Date().getFullYear()} Ordy</span>
-          </div>
-        </footer>
-
-        {/* ---------------- Sticky mobile CTA ---------------- */}
-        <div
-          className={`lg:hidden fixed inset-x-0 bottom-0 z-40 bg-white/95 backdrop-blur border-t border-[#E7EBE7] px-4 pt-3 transition-transform duration-300 ${
-            showBar ? 'translate-y-0' : 'translate-y-full'
-          }`}
-          style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}
-          aria-hidden={!showBar}
-        >
-          <div className="flex items-center justify-between gap-3 max-w-md mx-auto">
-            <div className="leading-tight">
-              <div className="font-extrabold text-[14px]">{TRIAL_DAYS} days free</div>
-              <div className="text-[12px] text-[#5A655D]">No card · No commitment</div>
-            </div>
-            <button
-              type="button"
-              tabIndex={showBar ? 0 : -1}
-              onClick={() => jumpTo('signup')}
-              className="px-5 py-3 rounded-2xl bg-[#006241] text-white font-extrabold text-[14px] active:scale-[0.98] cursor-pointer"
-            >
-              Start free trial
-            </button>
-          </div>
+      {/* Sticky mobile CTA */}
+      <div className={`lg:hidden fixed inset-x-0 bottom-0 z-40 bg-white/95 backdrop-blur border-t border-[#E3E8E3] px-4 pt-3 transition-transform duration-300 ${showBar ? 'translate-y-0' : 'translate-y-full'}`}
+        style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }} aria-hidden={!showBar}>
+        <div className="flex items-center justify-between gap-3 max-w-md mx-auto">
+          <div className="leading-tight"><div className="font-extrabold text-[14px]">{TRIAL_DAYS} days free</div><div className="text-[12px] text-stone-500">No card needed</div></div>
+          <button type="button" tabIndex={showBar ? 0 : -1} onClick={() => jumpTo('signup')} className="px-5 py-3 rounded-2xl bg-[#006241] text-white font-extrabold text-[14px] active:scale-[0.98] cursor-pointer">Start free trial</button>
         </div>
       </div>
     </div>
