@@ -1,12 +1,14 @@
+// @ts-nocheck
 // ============================================================
 // ORDY: send-push Edge Function
 // Sends web push notifications to a seller's subscribed devices.
 //
 // Auth model:
-//   - Authenticated caller (seller JWT): must match seller_id
-//   - Anon caller: must supply order_id that belongs to seller_id,
-//     and the order must have been created within the last 5 minutes
-//     (prevents spam from a single captured order id)
+//   - If order_id is provided: it must be a real order for this
+//     seller, created within the last 5 minutes. This is the
+//     buyer-triggered path (storefront / quick order).
+//   - If no order_id: caller must be an authenticated seller
+//     whose auth_user_id owns the seller_id being pushed to.
 // ============================================================
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -43,15 +45,40 @@ Deno.serve(async (req) => {
       return json({ error: 'Missing required fields: seller_id, title, message' }, 400);
     }
 
-    // ── Auth check ─────────────────────────────────────────────
-    const authHeader = req.headers.get('Authorization') || '';
-    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
     const admin = createClient(supabaseUrl, serviceKey!);
 
-    const isAnonCall = !token || token === anonKey;
+    // ── Auth ──────────────────────────────────────────────────
+    // Prefer the buyer path when an order_id is supplied: it is
+    // the safest form of authorization because it proves a fresh
+    // order actually exists for this seller, independent of any
+    // JWT that the browser happened to attach.
+    if (order_id) {
+      const { data: order, error: orderErr } = await admin
+        .from('orders')
+        .select('id, seller_id, created_at')
+        .eq('id', order_id)
+        .eq('seller_id', seller_id)
+        .maybeSingle();
 
-    if (!isAnonCall) {
-      // Authenticated path: verify the caller owns this seller row.
+      if (orderErr || !order) {
+        return json({ error: 'Not authorized' }, 403);
+      }
+
+      const ageMs = Date.now() - new Date(order.created_at).getTime();
+      if (ageMs > 5 * 60 * 1000) {
+        return json({ error: 'Order too old for push trigger' }, 429);
+      }
+      // authorized — fall through to send
+    } else {
+      // No order_id → must be an authenticated seller pushing
+      // for their own shop.
+      const authHeader = req.headers.get('Authorization') || '';
+      const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+
+      if (!token || token === anonKey) {
+        return json({ error: 'Not authorized' }, 401);
+      }
+
       const { data: { user }, error: authErr } = await admin.auth.getUser(token);
       if (authErr || !user) return json({ error: 'Invalid session' }, 401);
 
@@ -63,23 +90,6 @@ Deno.serve(async (req) => {
         .maybeSingle();
 
       if (sellerErr || !seller) return json({ error: 'Not authorized for this seller' }, 403);
-    } else {
-      // Anon path: must supply a valid, recent order_id for this seller.
-      if (!order_id) return json({ error: 'Not authorized' }, 401);
-
-      const { data: order, error: orderErr } = await admin
-        .from('orders')
-        .select('id, seller_id, created_at')
-        .eq('id', order_id)
-        .eq('seller_id', seller_id)
-        .maybeSingle();
-
-      if (orderErr || !order) return json({ error: 'Not authorized' }, 403);
-
-      const ageMs = Date.now() - new Date(order.created_at).getTime();
-      if (ageMs > 5 * 60 * 1000) {
-        return json({ error: 'Order too old for push trigger' }, 429);
-      }
     }
 
     // ── Fetch subscriptions ────────────────────────────────────
